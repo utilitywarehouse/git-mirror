@@ -1,0 +1,698 @@
+package mirror
+
+import (
+	"context"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	defaultDirMode     fs.FileMode = os.FileMode(0755) // 'rwxr-xr-x'
+	defaultRefSpec                 = "+refs/*:refs/*"
+	minAllowedInterval             = time.Second
+)
+
+var (
+	gitExecutablePath string
+	staleTimeout      time.Duration = 10 * time.Second // time for stale worktrees to be cleaned up
+
+	// to parse output of "git ls-remote --symref origin HEAD"
+	// ref: refs/heads/xxxx  HEAD
+	remoteDefaultBranchRgx = regexp.MustCompile(`^ref:\s+([^\s]+)\s+HEAD`)
+)
+
+func init() {
+	gitExecutablePath = exec.Command("git").String()
+}
+
+type gcMode string
+
+const (
+	gcAuto       = "auto"
+	gcAlways     = "always"
+	gcAggressive = "aggressive"
+	gcOff        = "off"
+)
+
+// Repository represents the mirrored repository of the given remote.
+// The implementation borrows heavily from https://github.com/kubernetes/git-sync.
+type Repository struct {
+	gitURL        *GitURL                  // parsed remote git URL
+	remote        string                   // remote repo to mirror
+	root          string                   // absolute path to the root where repo directory created
+	dir           string                   // absolute path to the repo directory
+	interval      time.Duration            // how long to wait between mirrors
+	auth          *Auth                    // auth information including ssh key path
+	gitGC         gcMode                   // garbage collection
+	envs          []string                 // envs which will be passed to git commands
+	running       bool                     // indicates if repository is running the mirror loop
+	workTreeLinks map[string]*WorkTreeLink // list of worktrees which will be maintained
+	lock          sync.RWMutex             // repository will be locked during mirror
+	stop, stopped chan bool                // chans to stop mirror loops
+	log           *slog.Logger
+}
+
+// NewRepository creates new repository from the given config.
+// remote repo will not be mirrored until either Mirror() or StartLoop() is called
+func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (*Repository, error) {
+	remoteURL := NormaliseURL(repoConf.Remote)
+
+	gURL, err := ParseGitURL(remoteURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if log == nil {
+		log = slog.Default()
+	}
+
+	log = log.With("repo", gURL.repo)
+
+	if !filepath.IsAbs(repoConf.Root) {
+		return nil, fmt.Errorf("repository root '%s' must be absolute", repoConf.Root)
+	}
+
+	if repoConf.Interval < minAllowedInterval {
+		return nil, fmt.Errorf("provided interval between mirroring is too sort (%s), must be > %s", repoConf.Interval, minAllowedInterval)
+	}
+
+	switch repoConf.GitGC {
+	case gcAuto, gcAlways, gcAggressive, gcOff:
+	default:
+		return nil, fmt.Errorf("wrong gc value provided, must be one of %s, %s, %s, %s",
+			gcAuto, gcAlways, gcAggressive, gcOff)
+	}
+
+	// we are going to create bare repo which caller cannot use directly
+	// hence we can add repo dir (with .git suffix to indicate bare repo) to the provided root.
+	// this also makes it safe to delete this dir and re-create it if needed
+	// also this root could have been shared with other mirror repository (repoPool)
+	repoDir := filepath.Join(repoConf.Root, gURL.repo)
+
+	repo := &Repository{
+		gitURL:        gURL,
+		remote:        remoteURL,
+		root:          repoConf.Root,
+		dir:           repoDir,
+		interval:      repoConf.Interval,
+		auth:          &repoConf.Auth,
+		log:           log,
+		gitGC:         gcMode(repoConf.GitGC),
+		envs:          envs,
+		workTreeLinks: make(map[string]*WorkTreeLink),
+		stop:          make(chan bool),
+		stopped:       make(chan bool),
+	}
+
+	for _, wtc := range repoConf.Worktrees {
+		if err := repo.AddWorktreeLink(wtc.Link, wtc.Ref, wtc.Ref); err != nil {
+			return nil, fmt.Errorf("unable to create worktree link err:%w", err)
+		}
+	}
+	return repo, nil
+}
+
+// add workTree link to the mirror repo
+func (r *Repository) AddWorktreeLink(link, ref, pathspec string) error {
+	if link == "" {
+		return fmt.Errorf("symlink path cannot be empty")
+	}
+
+	if v, ok := r.workTreeLinks[link]; ok {
+		return fmt.Errorf("worktree with given link already exits link:%s ref:%s", v.link, v.ref)
+	}
+
+	linkAbs := absLink(r.root, link)
+
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	_, linkFile := SplitAbs(link)
+
+	wt := &WorkTreeLink{
+		name:     linkFile,
+		link:     linkAbs,
+		ref:      ref,
+		pathspec: pathspec,
+		log:      r.log.With("worktree", linkFile),
+	}
+
+	r.workTreeLinks[link] = wt
+	return nil
+}
+
+// Hash returns the hash of the given revision and for the path if specified.
+func (r *Repository) Hash(ctx context.Context, ref, path string) (string, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	return r.hash(ctx, ref, path)
+}
+
+// LogMsg returns the formatted log subject with author info of the given
+// revision and for the path if specified.
+func (r *Repository) LogMsg(ctx context.Context, ref, path string) (string, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	args := []string{"log", `--pretty=format:'%s (%an)'`, "-n", "1", ref}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	// git log --pretty=format:'%s (%an)' -n 1 <ref> [-- <path>]
+	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.Trim(msg, "'"), nil
+}
+
+// Clone creates a single-branch local clone of the mirrored repository to a new location on
+// disk. On success, it returns the hash of the new repository clone's HEAD.
+// if pathspec is provided only those paths will be checked out.
+// if rmGitDir is true `.git` folder will be deleted after the clone.
+// if dst not empty all its contents will be removed
+func (r *Repository) Clone(ctx context.Context, dst, branch, pathspec string, rmGitDir bool) (string, error) {
+	if branch == "" {
+		return "", fmt.Errorf("branch name is required for single-branch clone")
+	}
+
+	dst, err := filepath.Abs(dst)
+	if err != nil {
+		return "", fmt.Errorf("unable to convert given dst path '%s' to abs path err:%w", dst, err)
+	}
+
+	empty, err := dirIsEmpty(dst)
+	if err != nil {
+		return "", fmt.Errorf("unable to verify if dst is empty err:%w", err)
+	}
+
+	if !empty {
+		// Git won't use this dir for clone.  We remove the contents rather than
+		// the dir itself, because a common use-case is to have a volume mounted
+		// at git.root, which makes removing it impossible.
+		r.log.Info("repo directory was empty or failed checks", "path", dst)
+		if err := removeDirContents(dst, r.log); err != nil {
+			return "", fmt.Errorf("unable to wipe dst err:%w", err)
+		}
+	}
+
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	hash, err := r.hash(ctx, branch, pathspec)
+	if err != nil {
+		return "", fmt.Errorf("unable to get hash err:%w", err)
+	}
+
+	args := []string{"clone", "--no-checkout", "--single-branch", "-b", branch, r.dir, dst}
+	// git clone --no-checkout --single-branch -b <branch> <remote> <dst>
+	if _, err := runGitCommand(ctx, r.log, nil, "", args...); err != nil {
+		return "", err
+	}
+
+	args = []string{"checkout", branch}
+	if pathspec != "" {
+		args = append(args, "--", pathspec)
+	}
+	// git checkout <branch> -- <pathspec>
+	if _, err := runGitCommand(ctx, r.log, nil, dst, args...); err != nil {
+		return "", err
+	}
+
+	if rmGitDir {
+		if err := os.RemoveAll(filepath.Join(dst, ".git")); err != nil {
+			return "", fmt.Errorf("unable to delete git dir err:%w", err)
+		}
+	}
+
+	return hash, nil
+}
+
+// StartLoop mirrors repository periodically based on given interval
+func (r *Repository) StartLoop(ctx context.Context) {
+	if r.running {
+		r.log.Error("mirror loop has already been started")
+		return
+	}
+	r.running = true
+	r.log.Info("started repository mirror loop", "interval", r.interval)
+
+	defer func() {
+		r.running = false
+		close(r.stopped)
+	}()
+
+	for {
+		// to stop mirror running indefinitely we will use interval time-out time
+		mCtx, cancel := context.WithTimeout(ctx, r.interval)
+		err := r.Mirror(mCtx)
+		cancel()
+		if err != nil {
+			r.log.Error("repository mirror failed", "err", err)
+		}
+
+		t := time.NewTimer(r.interval)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return
+		case <-r.stop:
+			return
+		}
+	}
+}
+
+// Mirror will fetch all references and re-publish worktrees if there is change in hash
+func (r *Repository) Mirror(ctx context.Context) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	start := time.Now()
+
+	if err := r.init(ctx); err != nil {
+		return fmt.Errorf("unable to init repo:%s  err:%w", r.gitURL.repo, err)
+	}
+
+	if err := r.fetch(ctx); err != nil {
+		return fmt.Errorf("unable to fetch repo:%s  err:%w", r.gitURL.repo, err)
+	}
+
+	for _, wl := range r.workTreeLinks {
+		if err := r.ensureWorktreeLink(ctx, wl); err != nil {
+			return fmt.Errorf("unable to ensure worktree links repo:%s link:%s  err:%w", r.gitURL.repo, wl.name, err)
+		}
+	}
+
+	if err := r.cleanup(ctx); err != nil {
+		return fmt.Errorf("unable to cleanup repo:%s  err:%w", r.gitURL.repo, err)
+	}
+	runTime := time.Since(start)
+
+	r.log.Info("mirroring completed", "time", runTime)
+	return nil
+}
+
+func (r *Repository) worktreesRoot() string {
+	return filepath.Join(r.dir, ".worktrees")
+}
+
+// worktreePath generates path based on worktree link and hash.
+// two worktree links can be on same ref but with diff pathspecs
+// hence we cant just use tree hash as path
+func (r *Repository) worktreePath(wl *WorkTreeLink, hash string) string {
+	return filepath.Join(r.worktreesRoot(), wl.worktreeDirName(hash))
+}
+
+// init examines the git repo and determines if it is usable or not. If
+// not, it will (re)initialize it.
+func (r *Repository) init(ctx context.Context) error {
+	_, err := os.Stat(r.dir)
+	switch {
+	case os.IsNotExist(err):
+		// initial mirror
+		r.log.Info("repo directory does not exist, creating it", "path", r.dir)
+		if err := os.MkdirAll(r.dir, defaultDirMode); err != nil {
+			return fmt.Errorf("unable to create repo dir err:%w", err)
+		}
+	case err != nil:
+		return fmt.Errorf("unable to verify repo dir err:%w", err)
+	default:
+		// Make sure the directory we found is actually usable.
+		if !r.sanityCheckRepo(ctx) {
+			r.log.Error("repo directory was empty or failed checks, re-creating...", "path", r.dir)
+			// Maybe a previous run crashed?  Git won't use this dir.
+			// since we add own folder to given root path we could just delete whole dir
+			// and re-create it
+			if err := reCreate(r.dir); err != nil {
+				return fmt.Errorf("unable to re-create repo dir err:%w", err)
+			}
+		} else {
+			r.log.Debug("existing repo directory is valid", "path", r.dir)
+			return nil
+		}
+	}
+
+	// create bare repository as we will use worktrees to checkout files
+	r.log.Info("initializing repo directory", "path", r.dir)
+	// git init -q --bare
+	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "init", "-q", "--bare"); err != nil {
+		return fmt.Errorf("unable to init repo err:%w", err)
+	}
+
+	// create new remote "origin"
+	// The "origin" remote has special meaning, like in relative-path submodules.
+	// use --mirror=fetch as we want to create mirrored bare repository. it will make sure
+	// everything in refs/* on the remote will be directly mirrored into refs/* in the local repository.
+	// git remote add --mirror=fetch origin <remote>
+	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "remote", "add", "--mirror=fetch", "origin", r.remote); err != nil {
+		return fmt.Errorf("unable to set remote err:%w", err)
+	}
+
+	// get default branch from remote and set it as local HEAD
+	headBranch, err := r.getRemoteDefaultBranch(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to get remote default branch err:%w", err)
+	}
+
+	// set local HEAD to remote HEAD/default branch
+	// git symbolic-ref HEAD <headBranch>(refs/heads/master)
+	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "symbolic-ref", "HEAD", headBranch); err != nil {
+		return fmt.Errorf("unable to set remote err:%w", err)
+	}
+
+	if !r.sanityCheckRepo(ctx) {
+		return fmt.Errorf("can't initialize git repo directory")
+	}
+
+	return nil
+}
+
+// getRemoteDefaultBranch will run ls-remote to get HEAD of the remote
+// and parse output to get default branch name
+func (r *Repository) getRemoteDefaultBranch(ctx context.Context) (string, error) {
+	envs := []string{}
+	if isSCPURL(r.remote) || isSSHURL(r.remote) {
+		envs = append(envs, r.auth.gitSSHCommand())
+	}
+
+	// git ls-remote --symref origin HEAD
+	out, err := runGitCommand(ctx, r.log, envs, r.dir, "ls-remote", "--symref", "origin", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("unable to get default branch err:%w", err)
+	}
+
+	sections := remoteDefaultBranchRgx.FindStringSubmatch(out)
+
+	if len(sections) == 2 {
+		r.log.Info("fetched remote symbolic ref", "default-branch", sections[1])
+		return sections[1], nil
+	}
+
+	return "", fmt.Errorf("unable to parse ls-remote output:%s sections:%s", out, sections)
+}
+
+// sanityCheckRepo tries to make sure that the repo dir is a valid git repository.
+func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
+	// If it is empty, we are done.
+	if empty, err := dirIsEmpty(r.dir); err != nil {
+		r.log.Error("can't list repo directory", "path", r.dir, "err", err)
+		return false
+	} else if empty {
+		r.log.Info("repo directory is empty", "path", r.dir)
+		return false
+	}
+
+	// make sure repo is bare repository
+	// git rev-parse --is-bare-repository
+	if ok, err := runGitCommand(ctx, r.log, r.envs, r.dir, "rev-parse", "--is-bare-repository"); err != nil {
+		r.log.Error("unable to verify bare repo", "path", r.dir, "err", err)
+		return false
+	} else if ok != "true" {
+		r.log.Error("repo is not a bare repository", "path", r.dir)
+		return false
+	}
+
+	// Check that this is actually the root of the repo.
+	// git rev-parse --absolute-git-dir
+	if root, err := runGitCommand(ctx, r.log, r.envs, r.dir, "rev-parse", "--absolute-git-dir"); err != nil {
+		r.log.Error("can't get repo git dir", "path", r.dir, "err", err)
+		return false
+	} else {
+		if root != r.dir {
+			r.log.Error("repo directory is under another repo", "path", r.dir, "parent", root)
+			return false
+		}
+	}
+
+	// The "origin" remote has special meaning, like in relative-path submodules.
+	// make sure origin exists with correct remote URL
+	// git config --get remote.origin.url
+	if stdout, err := runGitCommand(ctx, r.log, r.envs, r.dir, "config", "--get", "remote.origin.url"); err != nil {
+		r.log.Error("can't get repo config remote.origin.url", "path", r.dir, "err", err)
+		return false
+	} else if stdout != r.remote {
+		r.log.Error("repo configured with diff remote url", "path", r.dir, "remote.origin.url", stdout)
+		return false
+	}
+
+	// verify origin's fetch refspec
+	// git config --get remote.origin.fetch
+	if stdout, err := runGitCommand(ctx, r.log, r.envs, r.dir, "config", "--get", "remote.origin.fetch"); err != nil {
+		r.log.Error("can't get repo config remote.origin.fetch", "path", r.dir, "err", err)
+		return false
+	} else if stdout != defaultRefSpec {
+		r.log.Error("repo configured with incorrect fetch refspec", "path", r.dir, "remote.origin.fetch", stdout)
+		return false
+	}
+
+	// Consistency-check the repo.  Don't use --verbose because it can be
+	// REALLY verbose.
+	// git fsck --no-progress --connectivity-only
+	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "fsck", "--no-progress", "--connectivity-only"); err != nil {
+		r.log.Error("repo fsck failed", "path", r.dir, "err", err)
+		return false
+	}
+
+	return true
+}
+
+// fetch calls git fetch to update all references
+func (r *Repository) fetch(ctx context.Context) error {
+	args := []string{"fetch", "origin", "--prune", "--no-progress", "--no-auto-gc"}
+	start := time.Now()
+
+	envs := []string{}
+	if isSCPURL(r.remote) || isSSHURL(r.remote) {
+		envs = append(envs, r.auth.gitSSHCommand())
+	}
+
+	// git fetch origin --prune --no-progress --no-auto-gc
+	_, err := runGitCommand(ctx, r.log, envs, r.dir, args...)
+	runTime := time.Since(start)
+
+	r.log.Info("fetched completed", "success", err == nil, "time", runTime)
+	return err
+}
+
+// hash returns the hash of the given revision and for the path if specified.
+func (r *Repository) hash(ctx context.Context, ref, path string) (string, error) {
+	args := []string{"log", "--pretty=format:%H", "-n", "1", ref}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	// git log --pretty=format:%H -n 1 <ref> [-- <path>]
+	return runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+}
+
+// ensureWorktreeLink will create / validate worktrees
+// it will remove worktree if tracking ref is removed from the remote
+func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) error {
+	// get remote hash from mirrored repo for the worktree link
+	remoteHash, err := r.hash(ctx, wl.ref, wl.pathspec)
+	if err != nil {
+		return fmt.Errorf("unable to get hash for worktree:%s err:%w", wl.name, err)
+	}
+	var currentHash, currentPath string
+
+	// we do not care if we cant get old worktree path as we can create it
+	currentPath, err = wl.currentWorktree()
+	if err != nil {
+		// in case of error we create new worktree
+		wl.log.Error("unable to get current worktree path", "err", err)
+	}
+
+	if currentPath != "" {
+		// get hash from the worktree folder
+		currentHash, err = wl.workTreeHash(ctx, currentPath)
+		if err != nil {
+			// in case of error we create new worktree
+			wl.log.Error("unable to get current worktree hash", "err", err)
+		}
+	}
+
+	// we got empty remote hash so either given worktree ref do not exits yet or
+	// its removed from the remote
+	if remoteHash == "" {
+		wt, err := wl.currentWorktree()
+		if err != nil {
+			wl.log.Error("can't get current worktree", "err", err)
+			return nil
+		}
+		if wt == "" {
+			return nil
+		}
+
+		wl.log.Info("remote hash is empty, removing old worktree", "path", currentPath)
+		if err := r.removeWorktree(ctx, wt); err != nil {
+			wl.log.Error("unable to remove old worktree", "err", err)
+		}
+
+		return nil
+	}
+
+	if currentHash == remoteHash {
+		if wl.sanityCheckWorktree(ctx) {
+			wl.log.Debug("current hash is same as remote and checks passed", "hash", currentHash)
+			return nil
+		}
+		wl.log.Error("worktree failed checks, re-creating...", "path", currentPath)
+	}
+
+	wl.log.Info("worktree update required", "remoteHash", remoteHash, "currentHash", currentHash)
+	newPath, err := r.createWorktree(ctx, wl, remoteHash)
+	if err != nil {
+		return fmt.Errorf("unable to create worktree for '%s' err:%w", wl.name, err)
+	}
+
+	if err = publishSymlink(wl.link, newPath); err != nil {
+		return fmt.Errorf("unable to publish symlink err:%w", err)
+	}
+
+	// since we use hash to create worktree path it is possible that we
+	// may have re-created current worktree
+	if currentPath != "" && currentPath != newPath {
+		if err := r.removeWorktree(ctx, currentPath); err != nil {
+			wl.log.Error("unable to remove old worktree", "err", err)
+		}
+	}
+	return nil
+}
+
+// createWorktree will create new worktree using given hash
+// if worktree already exists on then it will be removed and re-created
+func (r *Repository) createWorktree(ctx context.Context, wl *WorkTreeLink, hash string) (string, error) {
+	// generate path for worktree to checkout files
+	wtPath := r.worktreePath(wl, hash)
+
+	// remove any existing worktree as we cant create new worktree if path is
+	// not empty
+	if err := r.removeWorktree(ctx, wtPath); err != nil {
+		return wtPath, err
+	}
+
+	wl.log.Info("creating worktree", "path", wtPath, "hash", hash)
+	// git worktree add --force --detach --no-checkout <wt-path> <hash>
+	_, err := runGitCommand(ctx, wl.log, nil, r.dir, "worktree", "add", "--force", "--detach", "--no-checkout", wtPath, hash)
+	if err != nil {
+		return wtPath, err
+	}
+
+	// only checkout required path if specified
+	args := []string{"checkout", hash}
+	if wl.pathspec != "" {
+		args = append(args, "--", wl.pathspec)
+	}
+	// git checkout <hash> -- <pathspec>
+	if _, err := runGitCommand(ctx, wl.log, nil, wtPath, args...); err != nil {
+		return "", err
+	}
+
+	return wtPath, nil
+}
+
+// removeWorktree is used to remove a worktree and its folder if exits
+func (r *Repository) removeWorktree(ctx context.Context, path string) error {
+	// Clean up worktree, if needed.
+	_, err := os.Stat(path)
+	switch {
+	case os.IsNotExist(err):
+		return nil
+	case err != nil:
+		return err
+	}
+
+	r.log.Info("removing worktree", "path", path)
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("error removing directory: %w", err)
+	}
+	// git worktree prune -v
+	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "worktree", "prune", "--verbose"); err != nil {
+		return err
+	}
+	return nil
+}
+
+// cleanup removes old worktrees and runs git's garbage collection.
+func (r *Repository) cleanup(ctx context.Context) error {
+	var cleanupErrs []error
+
+	// Clean up previous worktree(s).
+	if _, err := r.removeStaleWorktrees(); err != nil {
+		cleanupErrs = append(cleanupErrs, err)
+	}
+
+	// Let git know we don't need those old commits any more.
+	// git worktree prune -v
+	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "worktree", "prune", "--verbose"); err != nil {
+		cleanupErrs = append(cleanupErrs, err)
+	}
+
+	// Expire old refs.
+	// git reflog expire --expire-unreachable=all --all
+	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "reflog", "expire", "--expire-unreachable=all", "--all"); err != nil {
+		cleanupErrs = append(cleanupErrs, err)
+	}
+
+	// Run GC if needed.
+	if r.gitGC != gcOff {
+		args := []string{"gc"}
+		switch r.gitGC {
+		case gcAuto:
+			args = append(args, "--auto")
+		case gcAlways:
+			// no extra flags
+		case gcAggressive:
+			args = append(args, "--aggressive")
+		}
+		if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...); err != nil {
+			cleanupErrs = append(cleanupErrs, err)
+		}
+	}
+
+	if len(cleanupErrs) > 0 {
+		return fmt.Errorf("%s", cleanupErrs)
+	}
+	return nil
+}
+
+func (r *Repository) removeStaleWorktrees() (int, error) {
+	var currentWTDirs []string
+
+	for _, wt := range r.workTreeLinks {
+		t, err := wt.currentWorktree()
+		if err != nil {
+			r.log.Error("unable to read worktree link", "worktree", wt.name, "err", err)
+			continue
+		}
+		if t != "" {
+			_, wtDir := SplitAbs(t)
+			currentWTDirs = append(currentWTDirs, wtDir)
+		}
+	}
+
+	count := 0
+	err := removeDirContentsIf(r.worktreesRoot(), r.log, func(fi os.FileInfo) (bool, error) {
+		// delete files that are over the stale time out, and make sure to never delete the current worktree
+		if !slices.Contains(currentWTDirs, fi.Name()) && time.Since(fi.ModTime()) > staleTimeout {
+			count++
+			r.log.Info("removing stale worktree", "worktree", fi.Name())
+			return true, nil
+		}
+		return false, nil
+	})
+	if err != nil && !os.IsNotExist(err) {
+		return 0, err
+	}
+	return count, nil
+}
