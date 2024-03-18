@@ -261,6 +261,7 @@ func (r *Repository) StartLoop(ctx context.Context) {
 		if err != nil {
 			r.log.Error("repository mirror failed", "err", err)
 		}
+		recordGitMirror(r.gitURL.repo, err == nil)
 
 		t := time.NewTimer(r.interval)
 		select {
@@ -277,6 +278,8 @@ func (r *Repository) StartLoop(ctx context.Context) {
 func (r *Repository) Mirror(ctx context.Context) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
+
+	defer updateMirrorLatency(r.gitURL.repo, time.Now())
 
 	start := time.Now()
 
