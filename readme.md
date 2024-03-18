@@ -1,4 +1,4 @@
-git-mirror is a library to periodically mirror (bare clones) remote repositories locally.
+git-mirror is a golang library to periodically mirror (bare clones) remote repositories locally.
 The mirror is created with `--mirror=fetch` hence everything in `refs/*` on the remote
 will be directly mirrored into `refs/*` in the local repository. 
 it can also maintain multiple mirrored checked out worktrees on different references.
