@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	testUpstreamRepo = "upstream.git"
+	testUpstreamRepo = "upstream1"
 	testRoot         = "root"
 	testInterval     = 1 * time.Second
 
@@ -949,7 +949,7 @@ func Test_RepoPool_Success(t *testing.T) {
 
 	upstream1 := filepath.Join(testTmpDir, testUpstreamRepo)
 	remote1 := "file://" + upstream1
-	upstream2 := filepath.Join(testTmpDir, "upstream2.git")
+	upstream2 := filepath.Join(testTmpDir, "upstream2")
 	remote2 := "file://" + upstream2
 	root := filepath.Join(testTmpDir, testRoot)
 
@@ -1136,7 +1136,7 @@ func Test_RepoPool_Error(t *testing.T) {
 
 	upstream1 := filepath.Join(testTmpDir, testUpstreamRepo)
 	remote1 := "file://" + upstream1
-	upstream2 := filepath.Join(testTmpDir, "upstream2.git")
+	upstream2 := filepath.Join(testTmpDir, "upstream2")
 	remote2 := "file://" + upstream2
 	root := filepath.Join(testTmpDir, testRoot)
 
@@ -1234,7 +1234,7 @@ func TestRepoPool_validateLinkPath(t *testing.T) {
 
 	upstream1 := filepath.Join(testTmpDir, testUpstreamRepo)
 	remote1 := "file://" + upstream1
-	upstream2 := filepath.Join(testTmpDir, "upstream2.git")
+	upstream2 := filepath.Join(testTmpDir, "upstream2")
 	remote2 := "file://" + upstream2
 	root := filepath.Join(testTmpDir, testRoot)
 

@@ -96,7 +96,11 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 	// hence we can add repo dir (with .git suffix to indicate bare repo) to the provided root.
 	// this also makes it safe to delete this dir and re-create it if needed
 	// also this root could have been shared with other mirror repository (repoPool)
-	repoDir := filepath.Join(repoConf.Root, gURL.repo)
+	repoDir := gURL.repo
+	if !strings.HasSuffix(repoDir, ".git") {
+		repoDir += ".git"
+	}
+	repoDir = filepath.Join(repoConf.Root, repoDir)
 
 	repo := &Repository{
 		gitURL:        gURL,
