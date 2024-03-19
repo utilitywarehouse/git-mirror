@@ -7,17 +7,20 @@ import (
 )
 
 var (
+	// The repository name can contain
+	// ASCII letters, digits, and the characters ., -, and _.
+
 	// user@host.xz:path/to/repo.git
-	scpURLRgx = regexp.MustCompile(`^(?P<user>[a-zA-Z]+)@(?P<host>(\w+\.?\w+)+(\:\d+)?):(?P<path>(\w+\/)*)(?P<repo>\w+.git)$`)
+	scpURLRgx = regexp.MustCompile(`^(?P<user>[\w\-\.]+)@(?P<host>([\w\-]+\.?[\w\-]+)+(\:\d+)?):(?P<path>([\w\-\.]+\/)*)(?P<repo>[\w\-\.]+(\.git)?)$`)
 
 	// ssh://user@host.xz[:port]/path/to/repo.git
-	sshURLRgx = regexp.MustCompile(`^ssh://(?P<user>[a-zA-Z]+)@(?P<host>(\w+\.?\w+)+(\:\d+)??)/(?P<path>(\w+\/)*)(?P<repo>\w+.git)$`)
+	sshURLRgx = regexp.MustCompile(`^ssh://(?P<user>[\w\-\.]+)@(?P<host>([\w\-]+\.?[\w\-]+)+(\:\d+)??)/(?P<path>([\w\-\.]+\/)*)(?P<repo>[\w\-\.]+(\.git)?)$`)
 
 	// https://host.xz[:port]/path/to/repo.git
-	httpsURLRgx = regexp.MustCompile(`^https://(?P<host>(\w+\.?\w+)+(\:\d+)?)/(?P<path>(\w+\/)*)(?P<repo>\w+.git)$`)
+	httpsURLRgx = regexp.MustCompile(`^https://(?P<host>([\w\-]+\.?[\w\-]+)+(\:\d+)?)/(?P<path>([\w\-\.]+\/)*)(?P<repo>[\w\-\.]+(\.git)?)$`)
 
 	// file:///path/to/repo.git
-	localURLRgx = regexp.MustCompile(`^file:///(?P<path>([\w-]+\/)*)(?P<repo>\w+.git)$`)
+	localURLRgx = regexp.MustCompile(`^file:///(?P<path>([\w\-\.]+\/)*)(?P<repo>[\w\-\.]+(\.git)?)$`)
 )
 
 type GitURL struct {
@@ -32,10 +35,6 @@ func NormaliseURL(rawURL string) string {
 	nURL := strings.ToLower(strings.TrimSpace(rawURL))
 	nURL = strings.TrimRight(nURL, "/")
 
-	// add .git suffix if needed
-	if !strings.HasSuffix(nURL, ".git") {
-		nURL = nURL + ".git"
-	}
 	return nURL
 }
 
@@ -82,6 +81,13 @@ func ParseGitURL(rawURL string) (*GitURL, error) {
 	// scp path doesn't have leading "/"
 	// also removing training "/" for consistency
 	gURL.path = strings.Trim(gURL.path, "/")
+
+	if gURL.path == "" {
+		return nil, fmt.Errorf("repo path (org) cannot be empty")
+	}
+	if gURL.repo == "" || gURL.repo == ".git" {
+		return nil, fmt.Errorf("repo name is invalid")
+	}
 
 	return gURL, nil
 }
