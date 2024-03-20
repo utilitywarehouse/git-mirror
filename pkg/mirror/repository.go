@@ -310,7 +310,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	}
 	runTime := time.Since(start)
 
-	r.log.Info("mirroring completed", "time", runTime)
+	r.log.Info("repo mirrored", "time", runTime)
 	return nil
 }
 
@@ -349,7 +349,7 @@ func (r *Repository) init(ctx context.Context) error {
 				return fmt.Errorf("unable to re-create repo dir err:%w", err)
 			}
 		} else {
-			r.log.Debug("existing repo directory is valid", "path", r.dir)
+			r.log.Log(ctx, -8, "existing repo directory is valid", "path", r.dir)
 			return nil
 		}
 	}
@@ -492,7 +492,7 @@ func (r *Repository) fetch(ctx context.Context) error {
 	_, err := runGitCommand(ctx, r.log, envs, r.dir, args...)
 	runTime := time.Since(start)
 
-	r.log.Info("fetched completed", "success", err == nil, "time", runTime)
+	r.log.Debug("repo fetched", "success", err == nil, "time", runTime)
 	return err
 }
 
