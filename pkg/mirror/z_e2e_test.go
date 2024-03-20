@@ -764,6 +764,16 @@ func Test_clone(t *testing.T) {
 		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
 	}
 
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteSHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
+	}
+
 	t.Log("TEST-2: forward HEAD and create other-branch")
 
 	remoteDir1SHA := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
@@ -825,6 +835,29 @@ func Test_clone(t *testing.T) {
 		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
 	}
 
+	// Clone HEAD
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteSHA2 {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-2")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
+	}
+
+	// Clone HEAD
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "dir1", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteDir1SHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir1SHA)
+		}
+		assertMissingFile(t, tempClone, "file")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
+		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
+	}
+
 	t.Log("TEST-3: move HEAD backward to init")
 	// do not delete other-branch
 	mustExec(t, upstream, "git", "reset", "-q", "--hard", remoteSHA)
@@ -835,6 +868,17 @@ func Test_clone(t *testing.T) {
 	}
 
 	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, "", true); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteSHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
+		assertMissingFile(t, tempClone, ".git")
+	}
+
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "", true); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA {

@@ -219,8 +219,12 @@ func (r *Repository) Clone(ctx context.Context, dst, branch, pathspec string, rm
 		return "", fmt.Errorf("unable to get hash err:%w", err)
 	}
 
-	args := []string{"clone", "--no-checkout", "--single-branch", "-b", branch, r.dir, dst}
-	// git clone --no-checkout --single-branch -b <branch> <remote> <dst>
+	args := []string{"clone", "--no-checkout", "--single-branch"}
+	if branch != "HEAD" {
+		args = append(args, "-b", branch)
+	}
+	args = append(args, r.dir, dst)
+	// git clone --no-checkout --single-branch [-b <branch>] <remote> <dst>
 	if _, err := runGitCommand(ctx, r.log, nil, "", args...); err != nil {
 		return "", err
 	}
@@ -306,7 +310,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	}
 	runTime := time.Since(start)
 
-	r.log.Info("mirroring completed", "time", runTime)
+	r.log.Info("repo mirrored", "time", runTime)
 	return nil
 }
 
@@ -345,7 +349,7 @@ func (r *Repository) init(ctx context.Context) error {
 				return fmt.Errorf("unable to re-create repo dir err:%w", err)
 			}
 		} else {
-			r.log.Debug("existing repo directory is valid", "path", r.dir)
+			r.log.Log(ctx, -8, "existing repo directory is valid", "path", r.dir)
 			return nil
 		}
 	}
@@ -488,7 +492,7 @@ func (r *Repository) fetch(ctx context.Context) error {
 	_, err := runGitCommand(ctx, r.log, envs, r.dir, args...)
 	runTime := time.Since(start)
 
-	r.log.Info("fetched completed", "success", err == nil, "time", runTime)
+	r.log.Debug("repo fetched", "success", err == nil, "time", runTime)
 	return err
 }
 
