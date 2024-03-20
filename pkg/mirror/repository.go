@@ -219,8 +219,12 @@ func (r *Repository) Clone(ctx context.Context, dst, branch, pathspec string, rm
 		return "", fmt.Errorf("unable to get hash err:%w", err)
 	}
 
-	args := []string{"clone", "--no-checkout", "--single-branch", "-b", branch, r.dir, dst}
-	// git clone --no-checkout --single-branch -b <branch> <remote> <dst>
+	args := []string{"clone", "--no-checkout", "--single-branch"}
+	if branch != "HEAD" {
+		args = append(args, "-b", branch)
+	}
+	args = append(args, r.dir, dst)
+	// git clone --no-checkout --single-branch [-b <branch>] <remote> <dst>
 	if _, err := runGitCommand(ctx, r.log, nil, "", args...); err != nil {
 		return "", err
 	}
