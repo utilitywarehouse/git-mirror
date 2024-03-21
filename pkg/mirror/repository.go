@@ -295,14 +295,24 @@ func (r *Repository) Mirror(ctx context.Context) error {
 		return fmt.Errorf("unable to init repo:%s  err:%w", r.gitURL.repo, err)
 	}
 
-	if err := r.fetch(ctx); err != nil {
+	refs, err := r.fetch(ctx)
+	if err != nil {
 		return fmt.Errorf("unable to fetch repo:%s  err:%w", r.gitURL.repo, err)
 	}
 
+	// worktree might need re-creating if it fails check
+	// so always ensure worktree even if nothing fetched
 	for _, wl := range r.workTreeLinks {
 		if err := r.ensureWorktreeLink(ctx, wl); err != nil {
 			return fmt.Errorf("unable to ensure worktree links repo:%s link:%s  err:%w", r.gitURL.repo, wl.name, err)
 		}
+	}
+
+	// clean-up can be skipped
+	if len(refs) == 0 {
+		runTime := time.Since(start)
+		r.log.Debug("mirror cycle complete nothing fetched", "time", runTime)
+		return nil
 	}
 
 	if err := r.cleanup(ctx); err != nil {
@@ -310,7 +320,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	}
 	runTime := time.Since(start)
 
-	r.log.Info("repo mirrored", "time", runTime)
+	r.log.Info("repo mirrored", "time", runTime, "updated-refs", len(refs))
 	return nil
 }
 
@@ -479,8 +489,10 @@ func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
 }
 
 // fetch calls git fetch to update all references
-func (r *Repository) fetch(ctx context.Context) error {
-	args := []string{"fetch", "origin", "--prune", "--no-progress", "--no-auto-gc"}
+func (r *Repository) fetch(ctx context.Context) ([]string, error) {
+	// adding --porcelain so output can be parsed for updated refs
+	// do not use -v output is very verbose
+	args := []string{"fetch", "origin", "--prune", "--no-progress", "--porcelain", "--no-auto-gc"}
 	start := time.Now()
 
 	envs := []string{}
@@ -489,11 +501,13 @@ func (r *Repository) fetch(ctx context.Context) error {
 	}
 
 	// git fetch origin --prune --no-progress --no-auto-gc
-	_, err := runGitCommand(ctx, r.log, envs, r.dir, args...)
+	out, err := runGitCommand(ctx, r.log, envs, r.dir, args...)
 	runTime := time.Since(start)
 
-	r.log.Debug("repo fetched", "success", err == nil, "time", runTime)
-	return err
+	refs := updatedRefs(out)
+
+	r.log.Debug("repo fetched", "success", err == nil, "time", runTime, "updated-ref", len(refs))
+	return refs, err
 }
 
 // hash returns the hash of the given revision and for the path if specified.

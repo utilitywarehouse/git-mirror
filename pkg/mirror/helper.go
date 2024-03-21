@@ -9,10 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var updatedRefRgx = regexp.MustCompile(`(?m)^[^=] \w+ \w+ (refs\/[^\s]+)`)
 
 func dirIsEmpty(path string) (bool, error) {
 	dirents, err := os.ReadDir(path)
@@ -159,6 +162,16 @@ func SplitAbs(abs string) (string, string) {
 func nextRandom() string {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return strconv.Itoa(int(r.Uint32()))
+}
+
+func updatedRefs(output string) []string {
+	var refs []string
+
+	for _, match := range updatedRefRgx.FindAllStringSubmatch(output, -1) {
+		refs = append(refs, match[1])
+	}
+
+	return refs
 }
 
 // runGitCommand runs git command with given arguments on given CWD

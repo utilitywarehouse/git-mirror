@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func Test_dirIsEmpty(t *testing.T) {
@@ -248,6 +250,70 @@ func TestSplitAbs(t *testing.T) {
 			if got1 != tt.expBase {
 				t.Errorf("SplitAbs() got1 = %v, want %v", got1, tt.expBase)
 			}
+		})
+	}
+}
+
+func Test_updatedRefs(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   []string
+	}{
+		{
+			"1",
+			`remote: Enumerating objects: 7, done.
+remote: Counting objects: 100% (7/7), done.
+remote: Compressing objects: 100% (1/1), done.
+remote: Total 4 (delta 3), reused 4 (delta 3), pack-reused 0
+Unpacking objects: 100% (4/4), 344 bytes | 172.00 KiB/s, done.
+  da39a3ee5e6b4b0d3255bfef95601890afd80709 f109e33263250f9212b1ac6a2a96215c270a0232 refs/heads/branch1`,
+			[]string{"refs/heads/branch1"},
+		}, {
+			"2",
+			`remote: Enumerating objects: 124, done.
+remote: Counting objects: 100% (98/98), done.
+remote: Compressing objects: 100% (23/23), done.
+remote: Total 26 (delta 20), reused 3 (delta 3), pack-reused 0
+Unpacking objects: 100% (26/26), 6.51 KiB | 1.30 MiB/s, done.
+/ f10e2821bbbea527ea02200352313bc059445190 ca46a771da19d175bc356a786aaae9c18c7eda50 refs/pull/1/merge asdfdsf
+? 4452d71687b6bc2c9389c3349fdc17fbd73b833b e6c3d625ee5b1b4f36ac4f2c48579fd2c1cf0687 refs/pull/2/merge
+  bb11b5672fefe86987e32960bd3a161b0d1717d9 44d11327a8be9107bade3b28a328ea261d7a482b refs/pull/3/merge
++ 79d6188de4447cb7cb204c6c610c8814b64460f8 90e42330a387dd7fba63d1c6ed02c965d8d10bd7 refs/pull/4/merge
+= 1643d7874890dca5982facfba9c4f24da53876e9 5cbac6e18ac6079300f7d64bc9f38c5cd377f2aa refs/pull/5/merge
+- 1643d7874890dca5982facfba9c4f24da53876e9 3da541559918a808c2402bba5012f6c60b27661c refs/pull/6/merge
+* 1925b0b80b618dce7303cc3e7059da5032474967 180467973d800a01fece8e469dc40db11a1df206 refs/pull/7/merge
+! 1925b0b80b618dce7303cc3e7059da5032474967 180467973d800a01fece8e469dc40db11a1df206 refs/pull/8/merge
+t 1643d7874890dca5982facfba9c4f24da53876e9 4c286e182bc4d1832a8739b18c19ecaf9262c37a refs/pull/9/merge
+t1643d7874890dca5982facfba9c4f24da53876e9 4c286e182bc4d1832a8739b18c19ecaf9262c37a refs/pull/10/merge`,
+			[]string{
+				"refs/pull/1/merge",
+				"refs/pull/2/merge",
+				"refs/pull/3/merge",
+				"refs/pull/4/merge",
+				"refs/pull/6/merge",
+				"refs/pull/7/merge",
+				"refs/pull/8/merge",
+				"refs/pull/9/merge",
+			},
+		}, {
+			"3",
+			`
+ e74db1326417c2faab522a0cdd3cb50a0e528a66 c257140b4e3202ba6ca34dca1234ac5a78700e5a refs/heads/branch1
+			`,
+			[]string{
+				"refs/heads/branch1",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := updatedRefs(tt.output)
+
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("updatedRefs() mismatch (-want +got):\n%s", diff)
+			}
+
 		})
 	}
 }
