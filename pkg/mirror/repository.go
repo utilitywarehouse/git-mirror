@@ -300,6 +300,8 @@ func (r *Repository) Mirror(ctx context.Context) error {
 		return fmt.Errorf("unable to fetch repo:%s  err:%w", r.gitURL.repo, err)
 	}
 
+	fetchTime := time.Since(start)
+
 	// worktree might need re-creating if it fails check
 	// so always ensure worktree even if nothing fetched
 	for _, wl := range r.workTreeLinks {
@@ -310,17 +312,15 @@ func (r *Repository) Mirror(ctx context.Context) error {
 
 	// clean-up can be skipped
 	if len(refs) == 0 {
-		runTime := time.Since(start)
-		r.log.Debug("mirror cycle complete nothing fetched", "time", runTime)
+		r.log.Debug("mirror cycle complete nothing fetched", "time", time.Since(start), "fetch-time", fetchTime)
 		return nil
 	}
 
 	if err := r.cleanup(ctx); err != nil {
 		return fmt.Errorf("unable to cleanup repo:%s  err:%w", r.gitURL.repo, err)
 	}
-	runTime := time.Since(start)
 
-	r.log.Info("repo mirrored", "time", runTime, "updated-refs", len(refs))
+	r.log.Info("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))
 	return nil
 }
 
@@ -491,9 +491,8 @@ func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
 // fetch calls git fetch to update all references
 func (r *Repository) fetch(ctx context.Context) ([]string, error) {
 	// adding --porcelain so output can be parsed for updated refs
-	// do not use -v output is very verbose
+	// do not use -v output it will print all refs
 	args := []string{"fetch", "origin", "--prune", "--no-progress", "--porcelain", "--no-auto-gc"}
-	start := time.Now()
 
 	envs := []string{}
 	if isSCPURL(r.remote) || isSSHURL(r.remote) {
@@ -502,12 +501,7 @@ func (r *Repository) fetch(ctx context.Context) ([]string, error) {
 
 	// git fetch origin --prune --no-progress --no-auto-gc
 	out, err := runGitCommand(ctx, r.log, envs, r.dir, args...)
-	runTime := time.Since(start)
-
-	refs := updatedRefs(out)
-
-	r.log.Debug("repo fetched", "success", err == nil, "time", runTime, "updated-ref", len(refs))
-	return refs, err
+	return updatedRefs(out), err
 }
 
 // hash returns the hash of the given revision and for the path if specified.
