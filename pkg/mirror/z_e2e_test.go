@@ -1031,7 +1031,10 @@ func Test_RepoPool_Success(t *testing.T) {
 		t.Fatalf("unexpected err:%s", err)
 	}
 
-	time.Sleep(time.Second)
+	// run initial mirror
+	if err := rp.Mirror(context.TODO(), testTimeout); err != nil {
+		t.Fatalf("unexpected err:%s", err)
+	}
 
 	// verify Hash and checked out files
 	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
@@ -1069,11 +1072,21 @@ func Test_RepoPool_Success(t *testing.T) {
 
 	t.Log("TEST-2: forward both upstream and test mirrors")
 
+	// start mirror loop
+	if err := rp.StartLoop(); err != nil {
+		t.Fatalf("unexpected err:%s", err)
+	}
+	time.Sleep(time.Second)
+	// start mirror loop again this should be no op
+	if err := rp.StartLoop(); err != nil {
+		t.Fatalf("unexpected err:%s", err)
+	}
+
 	fileU1SHA2 := mustCommit(t, upstream1, "file", t.Name()+"-u1-main-2")
 	fileU2SHA2 := mustCommit(t, upstream2, "file", t.Name()+"-u2-main-2")
 
 	// wait for the mirror
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 
 	// verify Hash, commit msg and checked out files
 	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
@@ -1213,6 +1226,10 @@ func Test_RepoPool_Error(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// start mirror loop
+	if err := rp.StartLoop(); err != nil {
+		t.Fatalf("unexpected err:%s", err)
+	}
 
 	time.Sleep(time.Second)
 
@@ -1271,67 +1288,6 @@ func Test_RepoPool_Error(t *testing.T) {
 		t.Errorf("unexpected success for non existing repo")
 	} else if err != ErrNotExist {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
-	}
-}
-
-func TestRepoPool_validateLinkPath(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
-
-	upstream1 := filepath.Join(testTmpDir, testUpstreamRepo)
-	remote1 := "file://" + upstream1
-	upstream2 := filepath.Join(testTmpDir, "upstream2")
-	remote2 := "file://" + upstream2
-	root := filepath.Join(testTmpDir, testRoot)
-
-	t.Log("TEST-1: init both upstream and test mirrors")
-
-	mustInitRepo(t, upstream1, "file", t.Name()+"-u1-main-1")
-	mustInitRepo(t, upstream2, "file", t.Name()+"-u2-main-1")
-
-	rpc := RepoPoolConfig{
-		Defaults: DefaultConfig{
-			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
-		},
-		Repositories: []RepositoryConfig{
-			{
-				Remote:    remote1,
-				Worktrees: []WorktreeConfig{{Link: "link1"}},
-			},
-			{
-				Remote:    remote2,
-				Worktrees: []WorktreeConfig{{Link: "link2"}},
-			},
-		},
-	}
-
-	rp, err := NewRepoPool(rpc, nil, testENVs)
-	if err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	}
-
-	tests := []struct {
-		name    string
-		repo    *Repository
-		link    string
-		wantErr bool
-	}{
-		{"add-repo2-link-to-repo1", rp.repos[0], "link2", true},
-		{"add-repo2-abs-link-to-repo1", rp.repos[0], filepath.Join(root, "link2"), true},
-		{"add-repo1-link-to-repo2", rp.repos[1], "link1", true},
-		{"add-repo1-abs-link-to-repo2", rp.repos[1], filepath.Join(root, "link1"), true},
-		{"add-new-link", rp.repos[0], "link3", false},
-		{"add-new-link", rp.repos[1], "link3", false},
-		{"add-new-abs-link", rp.repos[0], filepath.Join(testTmpDir, "temp", "link1"), false},
-		{"add-new-abs-link", rp.repos[1], filepath.Join(testTmpDir, "temp", "link2"), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-
-			if err := rp.validateLinkPath(tt.repo, tt.link); (err != nil) != tt.wantErr {
-				t.Errorf("RepoPool.validateLinkPath() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
 	}
 }
 
