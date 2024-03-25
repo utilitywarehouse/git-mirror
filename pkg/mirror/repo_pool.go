@@ -84,7 +84,7 @@ func (rp *RepoPool) Mirror(ctx context.Context, timeout time.Duration) error {
 }
 
 // StartLoop will start mirror loop if its not already started
-func (rp *RepoPool) StartLoop() error {
+func (rp *RepoPool) StartLoop() {
 	for _, repo := range rp.repos {
 		if !repo.running {
 			go repo.StartLoop(context.TODO())
@@ -92,7 +92,6 @@ func (rp *RepoPool) StartLoop() error {
 		}
 		rp.log.Info("start loop is already running", "repo", repo.gitURL.repo)
 	}
-	return nil
 }
 
 // Repo will return Repository object based on given remote URL

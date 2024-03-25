@@ -1073,14 +1073,11 @@ func Test_RepoPool_Success(t *testing.T) {
 	t.Log("TEST-2: forward both upstream and test mirrors")
 
 	// start mirror loop
-	if err := rp.StartLoop(); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	}
+	rp.StartLoop()
+
 	time.Sleep(time.Second)
 	// start mirror loop again this should be no op
-	if err := rp.StartLoop(); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	}
+	rp.StartLoop()
 
 	fileU1SHA2 := mustCommit(t, upstream1, "file", t.Name()+"-u1-main-2")
 	fileU2SHA2 := mustCommit(t, upstream2, "file", t.Name()+"-u2-main-2")
@@ -1227,9 +1224,7 @@ func Test_RepoPool_Error(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// start mirror loop
-	if err := rp.StartLoop(); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	}
+	rp.StartLoop()
 
 	time.Sleep(time.Second)
 
