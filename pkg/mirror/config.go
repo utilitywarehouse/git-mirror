@@ -12,19 +12,21 @@ type RepoPoolConfig struct {
 }
 
 type DefaultConfig struct {
-	Root     string        `yaml:"root"`
-	Interval time.Duration `yaml:"interval"`
-	GitGC    string        `yaml:"git_gc"`
-	Auth     Auth          `yaml:"auth"`
+	Root          string        `yaml:"root"`
+	Interval      time.Duration `yaml:"interval"`
+	MirrorTimeout time.Duration `yaml:"mirror_timeout"`
+	GitGC         string        `yaml:"git_gc"`
+	Auth          Auth          `yaml:"auth"`
 }
 
 type RepositoryConfig struct {
-	Remote    string           `yaml:"remote"`
-	Root      string           `yaml:"root"`
-	Interval  time.Duration    `yaml:"interval"`
-	GitGC     string           `yaml:"git_gc"`
-	Auth      Auth             `yaml:"auth"`
-	Worktrees []WorktreeConfig `yaml:"worktrees"`
+	Remote        string           `yaml:"remote"`
+	Root          string           `yaml:"root"`
+	Interval      time.Duration    `yaml:"interval"`
+	MirrorTimeout time.Duration    `yaml:"mirror_timeout"`
+	GitGC         string           `yaml:"git_gc"`
+	Auth          Auth             `yaml:"auth"`
+	Worktrees     []WorktreeConfig `yaml:"worktrees"`
 }
 
 type WorktreeConfig struct {
@@ -56,6 +58,11 @@ func (rpc *RepoPoolConfig) ValidateDefaults() error {
 		}
 	}
 
+	if dc.MirrorTimeout != 0 {
+		if dc.MirrorTimeout < minAllowedInterval {
+			errs = append(errs, fmt.Errorf("provided mirroring timeout is too sort (%s), must be > %s", dc.Interval, minAllowedInterval))
+		}
+	}
 	switch dc.GitGC {
 	case "":
 	case gcAuto, gcAlways, gcAggressive, gcOff:
@@ -81,6 +88,10 @@ func (rpc *RepoPoolConfig) ApplyDefaults() {
 
 		if repo.Interval == 0 {
 			repo.Interval = rpc.Defaults.Interval
+		}
+
+		if repo.MirrorTimeout == 0 {
+			repo.MirrorTimeout = rpc.Defaults.MirrorTimeout
 		}
 
 		if repo.GitGC == "" {

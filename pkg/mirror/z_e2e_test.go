@@ -1125,7 +1125,7 @@ func Test_RepoPool_Success(t *testing.T) {
 	mustExec(t, upstream2, "git", "reset", "-q", "--hard", fileU2SHA1)
 
 	// wait for the mirror
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 
 	// verify Hash and checked out files
 	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {

@@ -51,6 +51,7 @@ type Repository struct {
 	root          string                   // absolute path to the root where repo directory created
 	dir           string                   // absolute path to the repo directory
 	interval      time.Duration            // how long to wait between mirrors
+	mirrorTimeout time.Duration            // the total time allowed for the mirror loop
 	auth          *Auth                    // auth information including ssh key path
 	gitGC         gcMode                   // garbage collection
 	envs          []string                 // envs which will be passed to git commands
@@ -262,8 +263,8 @@ func (r *Repository) StartLoop(ctx context.Context) {
 	}()
 
 	for {
-		// to stop mirror running indefinitely we will use interval time-out time
-		mCtx, cancel := context.WithTimeout(ctx, r.interval)
+		// to stop mirror running indefinitely we will use time-out
+		mCtx, cancel := context.WithTimeout(ctx, r.mirrorTimeout)
 		err := r.Mirror(mCtx)
 		cancel()
 		if err != nil {
