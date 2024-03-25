@@ -16,6 +16,7 @@ const (
 	testUpstreamRepo = "upstream1"
 	testRoot         = "root"
 	testInterval     = 1 * time.Second
+	testTimeout      = 10 * time.Second
 
 	testMainBranch = "e2e-mai"
 	testGitUser    = "git-mirror-e2e"
@@ -226,11 +227,12 @@ func Test_mirror_bad_ref(t *testing.T) {
 	mustInitRepo(t, upstream, "file", t.Name())
 
 	rc := RepositoryConfig{
-		Remote:    "file://" + upstream,
-		Root:      root,
-		Interval:  testInterval,
-		GitGC:     "always",
-		Worktrees: []WorktreeConfig{{Link: link, Ref: ref}},
+		Remote:        "file://" + upstream,
+		Root:          root,
+		Interval:      testInterval,
+		MirrorTimeout: testTimeout,
+		GitGC:         "always",
+		Worktrees:     []WorktreeConfig{{Link: link, Ref: ref}},
 	}
 	repo, err := NewRepository(rc, testENVs, testLog)
 	if err != nil {
@@ -1004,7 +1006,7 @@ func Test_RepoPool_Success(t *testing.T) {
 
 	rpc := RepoPoolConfig{
 		Defaults: DefaultConfig{
-			Root: root, Interval: testInterval, GitGC: "always",
+			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 		},
 		Repositories: []RepositoryConfig{
 			{
@@ -1193,7 +1195,7 @@ func Test_RepoPool_Error(t *testing.T) {
 
 	rpc := RepoPoolConfig{
 		Defaults: DefaultConfig{
-			Root: root, Interval: testInterval, GitGC: "always",
+			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 		},
 		Repositories: []RepositoryConfig{
 			{
@@ -1289,7 +1291,7 @@ func TestRepoPool_validateLinkPath(t *testing.T) {
 
 	rpc := RepoPoolConfig{
 		Defaults: DefaultConfig{
-			Root: root, Interval: testInterval, GitGC: "always",
+			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 		},
 		Repositories: []RepositoryConfig{
 			{
@@ -1342,10 +1344,11 @@ func mustCreateRepoAndMirror(t *testing.T, upstream, root, link, ref string) *Re
 
 	// create mirror repo and add link for main branch
 	rc := RepositoryConfig{
-		Remote:   "file://" + upstream,
-		Root:     root,
-		Interval: testInterval,
-		GitGC:    "always",
+		Remote:        "file://" + upstream,
+		Root:          root,
+		Interval:      testInterval,
+		MirrorTimeout: testTimeout,
+		GitGC:         "always",
 	}
 	repo, err := NewRepository(rc, testENVs, testLog)
 	if err != nil {

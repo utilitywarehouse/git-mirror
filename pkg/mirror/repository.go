@@ -109,6 +109,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 		root:          repoConf.Root,
 		dir:           repoDir,
 		interval:      repoConf.Interval,
+		mirrorTimeout: repoConf.MirrorTimeout,
 		auth:          &repoConf.Auth,
 		log:           log,
 		gitGC:         gcMode(repoConf.GitGC),
