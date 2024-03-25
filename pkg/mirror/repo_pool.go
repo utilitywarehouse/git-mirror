@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 var (
@@ -20,6 +21,7 @@ type RepoPool struct {
 
 // NewRepoPool will create mirror repositories based on given config and start loop
 // RepoPool provides simple wrapper around Repository methods and used remote url to select repository
+// remote repo will not be mirrored until either Mirror() or StartLoop() is called
 func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
 	if err := conf.ValidateDefaults(); err != nil {
 		return nil, err
@@ -52,8 +54,8 @@ func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*R
 	return rp, nil
 }
 
-// AddRepository will add given repository to repoPool and
-// start mirror loop if its not already started
+// AddRepository will add given repository to repoPool
+// remote repo will not be mirrored until either Mirror() or StartLoop() is called
 func (rp *RepoPool) AddRepository(repo *Repository) error {
 	if repo, _ := rp.Repo(repo.remote); repo != nil {
 		return ErrExist
@@ -61,10 +63,35 @@ func (rp *RepoPool) AddRepository(repo *Repository) error {
 
 	rp.repos = append(rp.repos, repo)
 
-	if !repo.running {
-		go repo.StartLoop(context.TODO())
+	return nil
+}
+
+// Mirror will trigger mirror on every repo in foreground with given timeout
+// it will error out if any of the repository mirror errors
+// ideally Mirror should be used for the first mirror to ensure repositories are
+// successfully mirrored
+func (rp *RepoPool) Mirror(ctx context.Context, timeout time.Duration) error {
+	for _, repo := range rp.repos {
+		mCtx, cancel := context.WithTimeout(ctx, timeout)
+		err := repo.Mirror(mCtx)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("repository mirror failed err:%w", err)
+		}
 	}
 
+	return nil
+}
+
+// StartLoop will start mirror loop if its not already started
+func (rp *RepoPool) StartLoop() error {
+	for _, repo := range rp.repos {
+		if !repo.running {
+			go repo.StartLoop(context.TODO())
+			continue
+		}
+		rp.log.Info("start loop is already running", "repo", repo.gitURL.repo)
+	}
 	return nil
 }
 
