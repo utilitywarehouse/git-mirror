@@ -29,7 +29,7 @@ func (wl *WorkTreeLink) currentWorktree() (string, error) {
 	return readAbsLink(wl.link)
 }
 
-// currentHash returns the hash of the given revision and for the path if specified.
+// workTreeHash returns the hash of the given revision and for the path if specified.
 func (wl *WorkTreeLink) workTreeHash(ctx context.Context, wt string) (string, error) {
 	// if worktree is not valid then command can return HEAD of the mirrored repo
 	// instead of worktree

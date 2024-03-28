@@ -243,12 +243,12 @@ func TestSplitAbs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := SplitAbs(tt.in)
+			got, got1 := splitAbs(tt.in)
 			if got != tt.expDir {
-				t.Errorf("SplitAbs() got = %v, want %v", got, tt.expDir)
+				t.Errorf("splitAbs() got = %v, want %v", got, tt.expDir)
 			}
 			if got1 != tt.expBase {
-				t.Errorf("SplitAbs() got1 = %v, want %v", got1, tt.expBase)
+				t.Errorf("splitAbs() got1 = %v, want %v", got1, tt.expBase)
 			}
 		})
 	}

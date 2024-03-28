@@ -45,10 +45,11 @@ const (
 
 // Repository represents the mirrored repository of the given remote.
 // The implementation borrows heavily from https://github.com/kubernetes/git-sync.
+// A Repository is safe for concurrent use by multiple goroutines.
 type Repository struct {
 	gitURL        *GitURL                  // parsed remote git URL
 	remote        string                   // remote repo to mirror
-	root          string                   // absolute path to the root where repo directory created
+	root          string                   // absolute path to the root where repo directory createdabsolute path to the root where repo directory created
 	dir           string                   // absolute path to the repo directory
 	interval      time.Duration            // how long to wait between mirrors
 	mirrorTimeout time.Duration            // the total time allowed for the mirror loop
@@ -63,7 +64,7 @@ type Repository struct {
 }
 
 // NewRepository creates new repository from the given config.
-// remote repo will not be mirrored until either Mirror() or StartLoop() is called
+// Remote repo will not be mirrored until either Mirror() or StartLoop() is called.
 func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (*Repository, error) {
 	remoteURL := NormaliseURL(repoConf.Remote)
 
@@ -127,7 +128,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 	return repo, nil
 }
 
-// add workTree link to the mirror repo
+// AddWorktreeLink adds add workTree link to the mirror repository.
 func (r *Repository) AddWorktreeLink(link, ref, pathspec string) error {
 	if link == "" {
 		return fmt.Errorf("symlink path cannot be empty")
@@ -143,7 +144,7 @@ func (r *Repository) AddWorktreeLink(link, ref, pathspec string) error {
 		ref = "HEAD"
 	}
 
-	_, linkFile := SplitAbs(link)
+	_, linkFile := splitAbs(link)
 
 	wt := &WorkTreeLink{
 		name:     linkFile,
@@ -249,7 +250,7 @@ func (r *Repository) Clone(ctx context.Context, dst, branch, pathspec string, rm
 	return hash, nil
 }
 
-// StartLoop mirrors repository periodically based on given interval
+// StartLoop mirrors repository periodically based on repo's mirror interval
 func (r *Repository) StartLoop(ctx context.Context) {
 	if r.running {
 		r.log.Error("mirror loop has already been started")
@@ -284,7 +285,11 @@ func (r *Repository) StartLoop(ctx context.Context) {
 	}
 }
 
-// Mirror will fetch all references and re-publish worktrees if there is change in hash
+// Mirror will run mirror loop of the repository
+//  1. init and validate if existing repo dir
+//  2. fetch remote
+//  3. ensure worktrees
+//  4. cleanup if needed
 func (r *Repository) Mirror(ctx context.Context) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -326,6 +331,8 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	return nil
 }
 
+// worktreesRoot returns abs path for all the worktrees of the repo
+// git uses `worktrees` folder for its on use hence we are using `.worktrees`
 func (r *Repository) worktreesRoot() string {
 	return filepath.Join(r.dir, ".worktrees")
 }
@@ -339,6 +346,8 @@ func (r *Repository) worktreePath(wl *WorkTreeLink, hash string) string {
 
 // init examines the git repo and determines if it is usable or not. If
 // not, it will (re)initialize it.
+// it will also make a remote call to get `symbolic-ref HEAD` of the remote
+// to get default branch for the remote
 func (r *Repository) init(ctx context.Context) error {
 	_, err := os.Stat(r.dir)
 	switch {
@@ -697,7 +706,7 @@ func (r *Repository) removeStaleWorktrees() (int, error) {
 			continue
 		}
 		if t != "" {
-			_, wtDir := SplitAbs(t)
+			_, wtDir := splitAbs(t)
 			currentWTDirs = append(currentWTDirs, wtDir)
 		}
 	}

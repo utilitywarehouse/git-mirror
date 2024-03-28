@@ -13,15 +13,15 @@ var (
 )
 
 // RepoPool represents the collection of mirrored repositories
-// it provides simple wrapper around Repository methods
+// it provides simple wrapper around Repository methods.
+// A RepoPool is safe for concurrent use by multiple goroutines.
 type RepoPool struct {
 	log   *slog.Logger
 	repos []*Repository
 }
 
-// NewRepoPool will create mirror repositories based on given config and start loop
-// RepoPool provides simple wrapper around Repository methods and used remote url to select repository
-// remote repo will not be mirrored until either Mirror() or StartLoop() is called
+// NewRepoPool will create mirror repositories based on given config.
+// Remote repo will not be mirrored until either Mirror() or StartLoop() is called
 func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
 	if err := conf.ValidateDefaults(); err != nil {
 		return nil, err
@@ -54,10 +54,10 @@ func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*R
 	return rp, nil
 }
 
-// AddRepository will add given repository to repoPool
-// remote repo will not be mirrored until either Mirror() or StartLoop() is called
+// AddRepository will add given repository to repoPool.
+// Remote repo will not be mirrored until either Mirror() or StartLoop() is called
 func (rp *RepoPool) AddRepository(repo *Repository) error {
-	if repo, _ := rp.Repo(repo.remote); repo != nil {
+	if repo, _ := rp.Repository(repo.remote); repo != nil {
 		return ErrExist
 	}
 
@@ -66,9 +66,9 @@ func (rp *RepoPool) AddRepository(repo *Repository) error {
 	return nil
 }
 
-// Mirror will trigger mirror on every repo in foreground with given timeout
-// it will error out if any of the repository mirror errors
-// ideally Mirror should be used for the first mirror to ensure repositories are
+// Mirror will trigger mirror on every repo in foreground with given timeout.
+// It will error out if any of the repository mirror errors.
+// Ideally Mirror should be used for the first mirror cycle to ensure repositories are
 // successfully mirrored
 func (rp *RepoPool) Mirror(ctx context.Context, timeout time.Duration) error {
 	for _, repo := range rp.repos {
@@ -83,7 +83,8 @@ func (rp *RepoPool) Mirror(ctx context.Context, timeout time.Duration) error {
 	return nil
 }
 
-// StartLoop will start mirror loop if its not already started
+// StartLoop will start mirror loop on all repositories
+// if its not already started
 func (rp *RepoPool) StartLoop() {
 	for _, repo := range rp.repos {
 		if !repo.running {
@@ -94,8 +95,8 @@ func (rp *RepoPool) StartLoop() {
 	}
 }
 
-// Repo will return Repository object based on given remote URL
-func (rp *RepoPool) Repo(remote string) (*Repository, error) {
+// Repository will return Repository object based on given remote URL
+func (rp *RepoPool) Repository(remote string) (*Repository, error) {
 	gitURL, err := ParseGitURL(remote)
 	if err != nil {
 		return nil, err
@@ -111,7 +112,7 @@ func (rp *RepoPool) Repo(remote string) (*Repository, error) {
 
 // AddWorktreeLink is wrapper around repositories AddWorktreeLink method
 func (rp *RepoPool) AddWorktreeLink(remote string, link, ref, pathspec string) error {
-	repo, err := rp.Repo(remote)
+	repo, err := rp.Repository(remote)
 	if err != nil {
 		return err
 	}
@@ -138,7 +139,7 @@ func (rp *RepoPool) validateLinkPath(repo *Repository, link string) error {
 
 // Hash is wrapper around repositories hash method
 func (rp *RepoPool) Hash(ctx context.Context, remote, ref, path string) (string, error) {
-	repo, err := rp.Repo(remote)
+	repo, err := rp.Repository(remote)
 	if err != nil {
 		return "", err
 	}
@@ -147,7 +148,7 @@ func (rp *RepoPool) Hash(ctx context.Context, remote, ref, path string) (string,
 
 // LogMsg is wrapper around repositories LogMsg method
 func (rp *RepoPool) LogMsg(ctx context.Context, remote, ref, path string) (string, error) {
-	repo, err := rp.Repo(remote)
+	repo, err := rp.Repository(remote)
 	if err != nil {
 		return "", err
 	}
@@ -156,7 +157,7 @@ func (rp *RepoPool) LogMsg(ctx context.Context, remote, ref, path string) (strin
 
 // Clone is wrapper around repositories Clone method
 func (rp *RepoPool) Clone(ctx context.Context, remote, dst, branch, pathspec string, rmGitDir bool) (string, error) {
-	repo, err := rp.Repo(remote)
+	repo, err := rp.Repository(remote)
 	if err != nil {
 		return "", err
 	}

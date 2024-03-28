@@ -1246,7 +1246,7 @@ func Test_RepoPool_Error(t *testing.T) {
 
 	t.Log("TEST-2: try adding existing repo again")
 
-	repo1, err := rp.Repo(remote1)
+	repo1, err := rp.Repository(remote1)
 	if err != nil {
 		t.Errorf("unexpected err:%s", err)
 	}
@@ -1258,13 +1258,13 @@ func Test_RepoPool_Error(t *testing.T) {
 	}
 
 	// try getting repo with wrong URL
-	if _, err := rp.Repo("ssh://host.xh/repo.git"); err == nil {
+	if _, err := rp.Repository("ssh://host.xh/repo.git"); err == nil {
 		t.Errorf("unexpected success for non existing repo")
 	}
 
 	t.Log("TEST-3: try non existing repo")
 	// check non existing repo
-	if _, err := rp.Repo(nonExistingRemote); err == nil {
+	if _, err := rp.Repository(nonExistingRemote); err == nil {
 		t.Errorf("unexpected success for non existing repo")
 	} else if err != ErrNotExist {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
@@ -1333,7 +1333,7 @@ func mustInitRepo(t *testing.T, repo, file, content string) string {
 func mustCommit(t *testing.T, repo, file, content string) string {
 	t.Helper()
 
-	dirs, _ := SplitAbs(file)
+	dirs, _ := splitAbs(file)
 	if dirs != "" && dirs != "/" {
 		if err := os.MkdirAll(filepath.Join(repo, dirs), defaultDirMode); err != nil {
 			t.Fatalf("unable to create file path dirs err: %v", err)
