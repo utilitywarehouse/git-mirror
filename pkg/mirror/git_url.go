@@ -23,6 +23,7 @@ var (
 	localURLRgx = regexp.MustCompile(`^file:///(?P<path>([\w\-\.]+\/)*)(?P<repo>[\w\-\.]+(\.git)?)$`)
 )
 
+// GitURL represents parsed git url
 type GitURL struct {
 	scheme string // value will be either 'scp', 'ssh', 'https' or 'local'
 	user   string // might be empty for http and local urls
@@ -31,6 +32,7 @@ type GitURL struct {
 	repo   string // repository name from the path includes .git
 }
 
+// NormaliseURL will return normalised url
 func NormaliseURL(rawURL string) string {
 	nURL := strings.ToLower(strings.TrimSpace(rawURL))
 	nURL = strings.TrimRight(nURL, "/")
@@ -39,6 +41,10 @@ func NormaliseURL(rawURL string) string {
 }
 
 // ParseGitURL parses a raw url into a GitURL structure.
+// valid git urls are...
+//   - user@host.xz:path/to/repo.git
+//   - ssh://user@host.xz[:port]/path/to/repo.git
+//   - https://host.xz[:port]/path/to/repo.git
 func ParseGitURL(rawURL string) (*GitURL, error) {
 	gURL := &GitURL{}
 
@@ -92,7 +98,7 @@ func ParseGitURL(rawURL string) (*GitURL, error) {
 	return gURL, nil
 }
 
-// SameURL returns whether or not the two parsed git URLs are equivalent
+// SameURL returns whether or not the two parsed git URLs are equivalent.
 // git URLs can be represented in multiple schemes so if host, path and repo name
 // of URLs are same then those URLs are for the same remote repository
 func SameURL(lURL, rURL *GitURL) bool {

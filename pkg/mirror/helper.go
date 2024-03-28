@@ -51,7 +51,7 @@ func reCreate(path string) error {
 // publishSymlink atomically sets link to point at the specified target.
 // both linkPath and targetPath must be absolute paths
 func publishSymlink(linkPath string, targetPath string) error {
-	linkDir, linkFile := SplitAbs(linkPath)
+	linkDir, linkFile := splitAbs(linkPath)
 
 	// Make sure the link directory exists.
 	if err := os.MkdirAll(linkDir, defaultDirMode); err != nil {
@@ -95,7 +95,7 @@ func readAbsLink(link string) (string, error) {
 	if filepath.IsAbs(target) {
 		return target, nil
 	}
-	linkDir, _ := SplitAbs(link)
+	linkDir, _ := splitAbs(link)
 	return filepath.Join(linkDir, target), nil
 }
 
@@ -141,7 +141,7 @@ func removeDirContentsIf(dir string, log *slog.Logger, fn func(fi os.FileInfo) (
 	return nil
 }
 
-func SplitAbs(abs string) (string, string) {
+func splitAbs(abs string) (string, string) {
 	if abs == "" {
 		return "", ""
 	}

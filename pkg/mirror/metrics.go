@@ -18,6 +18,14 @@ var (
 	mirrorLatency *prometheus.HistogramVec
 )
 
+// EnableMetrics will enable metrics collection for git mirrors.
+// Available metrics are...
+//   - git_last_mirror_timestamp - (tags: repo)
+//     A Gauge that captures the Timestamp of the last successful git sync per repo.
+//   - git_mirror_count - (tags: repo,success)
+//     A Counter for each repo sync, incremented with each sync attempt and tagged with the result (success=true|false)
+//   - git_mirror_latency_seconds - (tags: repo)
+//     A Summary that keeps track of the git sync latency per repo.
 func EnableMetrics(metricsNamespace string, registerer prometheus.Registerer) {
 	lastMirrorTimestamp = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: metricsNamespace,
