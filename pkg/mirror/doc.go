@@ -15,7 +15,7 @@
 //
 // # Logging:
 //
-// package takes slog reference for logging and prints logs at 'trace' level
+// package takes slog reference for logging and prints logs up to 'trace' level
 //
 // Example:
 //
