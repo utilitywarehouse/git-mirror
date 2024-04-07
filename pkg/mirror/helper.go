@@ -15,7 +15,29 @@ import (
 	"time"
 )
 
-var updatedRefRgx = regexp.MustCompile(`(?m)^[^=] \w+ \w+ (refs\/[^\s]+)`)
+var (
+	updatedRefRgx = regexp.MustCompile(`(?m)^[^=] \w+ \w+ (refs\/[^\s]+)`)
+
+	// Objects can be named by their 40 hexadecimal digit SHA-1 name
+	// or 64 hexadecimal digit SHA-256 name
+	commitHashRgx            = regexp.MustCompile("^([0-9A-Fa-f]{40}|[0-9A-Fa-f]{64})$")
+	abbreviatedCommitHashRgx = regexp.MustCompile("^[0-9A-Fa-f]{7,}$")
+)
+
+// IsCommitHash returns whether or not a string is a 40 char SHA-1
+// or 64 char SHA-256 hash
+func IsFullCommitHash(hash string) bool {
+	return commitHashRgx.MatchString(hash)
+}
+
+// IsAbbreviatedCommitHash returns whether or not a string is a abbreviated Hash
+func IsAbbreviatedCommitHash(hash string) bool {
+	return abbreviatedCommitHashRgx.MatchString(hash)
+}
+
+func IsCommitHash(hash string) bool {
+	return IsFullCommitHash(hash) || IsAbbreviatedCommitHash(hash)
+}
 
 func dirIsEmpty(path string) (bool, error) {
 	dirents, err := os.ReadDir(path)

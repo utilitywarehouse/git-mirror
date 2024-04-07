@@ -18,7 +18,7 @@ const (
 	testInterval     = 1 * time.Second
 	testTimeout      = 10 * time.Second
 
-	testMainBranch = "e2e-mai"
+	testMainBranch = "e2e-main"
 	testGitUser    = "git-mirror-e2e"
 )
 
@@ -739,7 +739,7 @@ func Test_commit_hash_msg(t *testing.T) {
 	}
 }
 
-func Test_clone(t *testing.T) {
+func Test_clone_branch(t *testing.T) {
 	testTmpDir := mustTmpDir(t)
 	defer os.RemoveAll(testTmpDir)
 	tempClone := mustTmpDir(t)
@@ -915,6 +915,138 @@ func Test_clone(t *testing.T) {
 
 	if _, err := repo.Clone(txtCtx, tempClone, otherBranch, "", true); err == nil {
 		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
+	}
+}
+
+func Test_clone_tag_sha(t *testing.T) {
+	testTmpDir := mustTmpDir(t)
+	defer os.RemoveAll(testTmpDir)
+	tempClone := mustTmpDir(t)
+	defer os.RemoveAll(tempClone)
+
+	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
+	root := filepath.Join(testTmpDir, testRoot)
+	otherBranch := "other-branch"
+	tag := "e2e-tag"
+	sha := "" // will be calculated later
+
+	t.Log("TEST-1: init upstream and verify 1st commit after mirror")
+
+	mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
+	sha = mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-1")
+	// add tag at current commit
+	mustExec(t, upstream, "git", "tag", "-af", tag, "-m", t.Name()+"-main-1")
+
+	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
+
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != sha {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
+	}
+
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != sha {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
+	}
+
+	t.Log("TEST-2: forward HEAD and create other-branch")
+
+	remoteDir1SHA := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
+	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
+	remoteDir2SHA := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-2")
+	remoteOtherSHA := mustCommit(t, upstream, "file", t.Name()+"-other-2")
+	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
+	remoteSHA2 := mustCommit(t, upstream, "file", t.Name()+"-main-2")
+	mustExec(t, upstream, "git", "tag", "-af", tag, "-m", t.Name()+"-main-2")
+
+	// mirror new commits
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
+
+	// Clone sha without path
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteOtherSHA, "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteOtherSHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-other-2")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), t.Name()+"-dir2-other-2")
+	}
+
+	// Clone sha with path
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteDir2SHA, "dir2", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteDir2SHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir2SHA)
+		}
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), t.Name()+"-dir2-other-2")
+	}
+
+	// Clone tag without path
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteSHA2 {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-2")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
+	}
+
+	// Clone tag with path
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "dir1", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != remoteDir1SHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir1SHA)
+		}
+		assertMissingFile(t, tempClone, "file")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
+		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
+	}
+
+	t.Log("TEST-3: move HEAD backward to init")
+	// do not delete other-branch
+	mustExec(t, upstream, "git", "reset", "-q", "--hard", sha)
+	mustExec(t, upstream, "git", "tag", "-af", tag, "-m", t.Name()+"-main-3")
+
+	// mirror new commits
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
+
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != sha {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
+	}
+
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, "", false); err != nil {
+		t.Fatalf("unexpected error %s", err)
+	} else {
+		if cloneSHA != sha {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
+		}
+		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
 	}
 }
 
