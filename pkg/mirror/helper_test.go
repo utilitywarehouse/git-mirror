@@ -9,6 +9,64 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+func TestIsFullCommitHash(t *testing.T) {
+	type args struct {
+		hash string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"1", args{""}, false},
+		{"2", args{"52e804596380380a9826bc12f891b7003350c518"}, true},
+		{"3", args{"a555a3c852bd26bad24c80f693ca6855640fa5ed"}, true},
+		{"4", args{"a555a3c852bd26bad24c80f693ca6855640fa5ez"}, false},
+		{"5", args{"489118d558a6e402e078d7e279a9fe5d7d4fbf47400ad87209a8338524399cd8"}, true},
+		{"6", args{"b996dcd2524489623d33f5ed49771b5211c3e42521445010610bb040884edeee"}, true},
+		{"6", args{"z996dcd2524489623d33f5ed49771b5211c3e42521445010610bb040884edeee"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsFullCommitHash(tt.args.hash); got != tt.want {
+				t.Errorf("IsFullCommitHash() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsCommitHash(t *testing.T) {
+	type args struct {
+		hash string
+	}
+	tests := []struct {
+		name string
+		args args
+		want bool
+	}{
+		{"1", args{""}, false},
+		{"2", args{"52e804596380380a9826bc12f891b7003350c518"}, true},
+		{"3", args{"a555a3c852bd26bad24c80f693ca6855640fa5ed"}, true},
+		{"4", args{"a555a3c852bd26bad24c80f693ca6855640fa5ez"}, false},
+		{"5", args{"489118d558a6e402e078d7e279a9fe5d7d4fbf47400ad87209a8338524399cd8"}, true},
+		{"6", args{"b996dcd2524489623d33f5ed49771b5211c3e42521445010610bb040884edeee"}, true},
+		{"7", args{"z996dcd2524489623d33f5ed49771b5211c3e42521445010610bb040884edeee"}, false},
+		{"8", args{"52e8045"}, true},
+		{"9", args{"a555a3c"}, true},
+		{"10", args{"489118d"}, true},
+		{"11", args{"b996dcd"}, true},
+		{"12", args{"b996dcz"}, false},
+		{"13", args{"b996dc"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsCommitHash(tt.args.hash); got != tt.want {
+				t.Errorf("IsCommitHash() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_dirIsEmpty(t *testing.T) {
 	tempRoot := t.TempDir()
 

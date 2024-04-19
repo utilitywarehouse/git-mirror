@@ -30,13 +30,10 @@ func IsFullCommitHash(hash string) bool {
 	return commitHashRgx.MatchString(hash)
 }
 
-// IsAbbreviatedCommitHash returns whether or not a string is a abbreviated Hash
-func IsAbbreviatedCommitHash(hash string) bool {
-	return abbreviatedCommitHashRgx.MatchString(hash)
-}
-
+// IsCommitHash returns whether or not a string is a abbreviated Hash or
+// 40 char SHA-1 or 64 char SHA-256 hash
 func IsCommitHash(hash string) bool {
-	return IsFullCommitHash(hash) || IsAbbreviatedCommitHash(hash)
+	return abbreviatedCommitHashRgx.MatchString(hash)
 }
 
 func dirIsEmpty(path string) (bool, error) {
