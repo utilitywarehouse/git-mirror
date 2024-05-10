@@ -368,7 +368,6 @@ func (r *Repository) Mirror(ctx context.Context) error {
 
 	// clean-up can be skipped
 	if len(refs) == 0 {
-		r.log.Debug("mirror cycle complete nothing fetched", "time", time.Since(start), "fetch-time", fetchTime)
 		return nil
 	}
 
