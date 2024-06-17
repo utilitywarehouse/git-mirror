@@ -184,6 +184,50 @@ func (r *Repository) LogMsg(ctx context.Context, ref, path string) (string, erro
 	return strings.Trim(msg, "'"), nil
 }
 
+// Subject returns commit subject of given commit hash
+func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if err := r.IsObjectExists(ctx, hash); err != nil {
+		return "", err
+	}
+
+	args := []string{"show", `--no-patch`, `--format='%s'`, hash}
+	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	if err != nil {
+		return "", err
+	}
+	return strings.Trim(msg, "'"), nil
+}
+
+// ChangedFiles returns path of the changed files for given commit hash
+func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	if err := r.IsObjectExists(ctx, hash); err != nil {
+		return nil, err
+	}
+
+	args := []string{"show", `--name-only`, `--pretty=format:`, hash}
+	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(msg, "\n"), nil
+}
+
+// IsObjectExists returns error is given object is not valid or if it doesn't exists
+func (r *Repository) IsObjectExists(ctx context.Context, obj string) error {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	args := []string{"cat-file", `-e`, obj}
+	_, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	return err
+}
+
 // Clone creates a single-branch local clone of the mirrored repository to a new location on
 // disk. On success, it returns the hash of the new repository clone's HEAD.
 // if pathspec is provided only those paths will be checked out.
