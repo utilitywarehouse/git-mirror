@@ -189,7 +189,7 @@ func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	if err := r.IsObjectExists(ctx, hash); err != nil {
+	if err := r.ObjectExists(ctx, hash); err != nil {
 		return "", err
 	}
 
@@ -206,7 +206,7 @@ func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, e
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	if err := r.IsObjectExists(ctx, hash); err != nil {
+	if err := r.ObjectExists(ctx, hash); err != nil {
 		return nil, err
 	}
 
@@ -218,8 +218,8 @@ func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, e
 	return strings.Split(msg, "\n"), nil
 }
 
-// IsObjectExists returns error is given object is not valid or if it doesn't exists
-func (r *Repository) IsObjectExists(ctx context.Context, obj string) error {
+// ObjectExists returns error is given object is not valid or if it doesn't exists
+func (r *Repository) ObjectExists(ctx context.Context, obj string) error {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
