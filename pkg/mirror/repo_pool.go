@@ -155,6 +155,33 @@ func (rp *RepoPool) LogMsg(ctx context.Context, remote, ref, path string) (strin
 	return repo.LogMsg(ctx, ref, path)
 }
 
+// Subject is wrapper around repositories Subject method
+func (rp *RepoPool) Subject(ctx context.Context, remote, hash string) (string, error) {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return "", err
+	}
+	return repo.Subject(ctx, hash)
+}
+
+// ChangedFiles is wrapper around repositories Subject ChangedFiles
+func (rp *RepoPool) ChangedFiles(ctx context.Context, remote, hash string) ([]string, error) {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return nil, err
+	}
+	return repo.ChangedFiles(ctx, hash)
+}
+
+// IsObjectExists is wrapper around repositories Subject IsObjectExists
+func (rp *RepoPool) IsObjectExists(ctx context.Context, remote, obj string) error {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return err
+	}
+	return repo.IsObjectExists(ctx, obj)
+}
+
 // Clone is wrapper around repositories Clone method
 func (rp *RepoPool) Clone(ctx context.Context, remote, dst, branch, pathspec string, rmGitDir bool) (string, error) {
 	repo, err := rp.Repository(remote)

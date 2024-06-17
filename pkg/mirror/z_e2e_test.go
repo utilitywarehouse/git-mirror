@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -610,8 +611,8 @@ func Test_commit_hash_msg(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
 
-	assertCommitLog(t, repo, "HEAD", "", fileSHA1, t.Name()+"-main-1")
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA1, t.Name()+"-main-1")
+	assertCommitLog(t, repo, "HEAD", "", fileSHA1, t.Name()+"-main-1", []string{"file"})
+	assertCommitLog(t, repo, testMainBranch, "", fileSHA1, t.Name()+"-main-1", []string{"file"})
 
 	t.Log("TEST-2: forward HEAD and create dir1 on HEAD")
 
@@ -623,11 +624,11 @@ func Test_commit_hash_msg(t *testing.T) {
 		t.Fatalf("unable to mirror error: %v", err)
 	}
 	// log @ root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA2, t.Name()+"-main-2")
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA2, t.Name()+"-main-2")
+	assertCommitLog(t, repo, "HEAD", "", fileSHA2, t.Name()+"-main-2", []string{"file"})
+	assertCommitLog(t, repo, testMainBranch, "", fileSHA2, t.Name()+"-main-2", []string{"file"})
 	// log @ dir1
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA2, t.Name()+"-dir1-main-2")
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA2, t.Name()+"-dir1-main-2")
+	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA2, t.Name()+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA2, t.Name()+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
 
 	t.Log("TEST-3: forward HEAD and create other-branch")
 
@@ -644,16 +645,16 @@ func Test_commit_hash_msg(t *testing.T) {
 	}
 
 	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA3, t.Name()+"-main-3")
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA3, t.Name()+"-main-3")
+	assertCommitLog(t, repo, "HEAD", "", fileSHA3, t.Name()+"-main-3", []string{"file"})
+	assertCommitLog(t, repo, testMainBranch, "", fileSHA3, t.Name()+"-main-3", []string{"file"})
 	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3")
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3")
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "")
+	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
 	// log @ other-branch
-	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA3, t.Name()+"-other-3")
-	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3")
-	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3")
+	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA3, t.Name()+"-other-3", []string{"file"})
+	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
 
 	t.Log("TEST-4: forward HEAD and other-branch")
 
@@ -670,17 +671,17 @@ func Test_commit_hash_msg(t *testing.T) {
 	}
 
 	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA4, t.Name()+"-main-4")
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA4, t.Name()+"-main-4")
+	assertCommitLog(t, repo, "HEAD", "", fileSHA4, t.Name()+"-main-4", []string{"file"})
+	assertCommitLog(t, repo, testMainBranch, "", fileSHA4, t.Name()+"-main-4", []string{"file"})
 	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA4, t.Name()+"-dir1-main-4")
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA4, t.Name()+"-dir1-main-4")
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "")
+	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA4, t.Name()+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA4, t.Name()+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
 	// log @ other-branch
-	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA4, t.Name()+"-other-4")
+	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA4, t.Name()+"-other-4", []string{"file"})
 	// dir1 on other-branch will be always behind
-	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3")
-	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA4, t.Name()+"-dir2-other-4")
+	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA4, t.Name()+"-dir2-other-4", []string{filepath.Join("dir2", "file")})
 
 	t.Log("TEST-4: move HEAD and other-branch backward to test3")
 
@@ -695,16 +696,16 @@ func Test_commit_hash_msg(t *testing.T) {
 	}
 
 	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA3, t.Name()+"-main-3")
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA3, t.Name()+"-main-3")
+	assertCommitLog(t, repo, "HEAD", "", fileSHA3, t.Name()+"-main-3", []string{"file"})
+	assertCommitLog(t, repo, testMainBranch, "", fileSHA3, t.Name()+"-main-3", []string{"file"})
 	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3")
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3")
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "")
+	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
 	// log @ other-branch
-	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA3, t.Name()+"-other-3")
-	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3")
-	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3")
+	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA3, t.Name()+"-other-3", []string{"file"})
+	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
 
 	t.Log("TEST-5: move HEAD backward to test1 and delete other-branch")
 
@@ -717,12 +718,12 @@ func Test_commit_hash_msg(t *testing.T) {
 	}
 
 	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA1, t.Name()+"-main-1")
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA1, t.Name()+"-main-1")
+	assertCommitLog(t, repo, "HEAD", "", fileSHA1, t.Name()+"-main-1", []string{"file"})
+	assertCommitLog(t, repo, testMainBranch, "", fileSHA1, t.Name()+"-main-1", []string{"file"})
 	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", "", "")
-	assertCommitLog(t, repo, testMainBranch, "dir1", "", "")
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "")
+	assertCommitLog(t, repo, "HEAD", "dir1", "", "", nil)
+	assertCommitLog(t, repo, testMainBranch, "dir1", "", "", nil)
+	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
 
 	// all checks on other-branch should fail
 	if _, err := repo.Hash(txtCtx, otherBranch, ""); err == nil {
@@ -1546,22 +1547,41 @@ func assertMissingFile(t *testing.T, path, file string) {
 	}
 }
 
-func assertCommitLog(t *testing.T, repo *Repository, ref, path, wantSHA, wantMsg string) {
+func assertCommitLog(t *testing.T, repo *Repository,
+	ref, path, wantSHA, wantSub string,
+	wantChangedFiles []string) {
 	t.Helper()
-
+	var wantMsg string
 	// add user info
-	if wantMsg != "" {
-		wantMsg = fmt.Sprintf("%s (%s)", wantMsg, testGitUser)
+	if wantSub != "" {
+		wantMsg = fmt.Sprintf("%s (%s)", wantSub, testGitUser)
 	}
-	if got, err := repo.Hash(txtCtx, ref, path); err != nil {
+	gotHash, err := repo.Hash(txtCtx, ref, path)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	} else if got != wantSHA {
-		t.Errorf("ref '%s' on path '%s' SHA mismatch got:%s want:%s", ref, path, got, wantSHA)
+	} else if gotHash != wantSHA {
+		t.Errorf("ref '%s' on path '%s' SHA mismatch got:%s want:%s", ref, path, gotHash, wantSHA)
 	}
 	if got, err := repo.LogMsg(txtCtx, ref, path); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	} else if got != wantMsg {
 		t.Errorf("ref '%s' on path '%s' Msg mismatch got:%s want:%s", ref, path, got, wantMsg)
+	}
+
+	if wantSHA == "" {
+		return
+	}
+
+	if got, err := repo.Subject(txtCtx, gotHash); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if got != wantSub {
+		t.Errorf("subject mismatch sha:%s got:%s want:%s", gotHash, got, wantSub)
+	}
+
+	if got, err := repo.ChangedFiles(txtCtx, gotHash); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if slices.Compare(got, wantChangedFiles) != 0 {
+		t.Errorf("changed file mismatch sha:%s got:%s want:%s", gotHash, got, wantChangedFiles)
 	}
 }
 
