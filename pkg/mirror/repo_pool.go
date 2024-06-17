@@ -164,7 +164,7 @@ func (rp *RepoPool) Subject(ctx context.Context, remote, hash string) (string, e
 	return repo.Subject(ctx, hash)
 }
 
-// ChangedFiles is wrapper around repositories Subject ChangedFiles
+// ChangedFiles is wrapper around repositories ChangedFiles method
 func (rp *RepoPool) ChangedFiles(ctx context.Context, remote, hash string) ([]string, error) {
 	repo, err := rp.Repository(remote)
 	if err != nil {
@@ -173,13 +173,13 @@ func (rp *RepoPool) ChangedFiles(ctx context.Context, remote, hash string) ([]st
 	return repo.ChangedFiles(ctx, hash)
 }
 
-// IsObjectExists is wrapper around repositories Subject IsObjectExists
-func (rp *RepoPool) IsObjectExists(ctx context.Context, remote, obj string) error {
+// ObjectExists is wrapper around repositories ObjectExists method
+func (rp *RepoPool) ObjectExists(ctx context.Context, remote, obj string) error {
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return err
 	}
-	return repo.IsObjectExists(ctx, obj)
+	return repo.ObjectExists(ctx, obj)
 }
 
 // Clone is wrapper around repositories Clone method
