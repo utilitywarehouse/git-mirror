@@ -25,11 +25,11 @@ var (
 
 // GitURL represents parsed git url
 type GitURL struct {
-	scheme string // value will be either 'scp', 'ssh', 'https' or 'local'
-	user   string // might be empty for http and local urls
-	host   string // host or host:port
-	path   string // path to the repo
-	repo   string // repository name from the path includes .git
+	Scheme string // value will be either 'scp', 'ssh', 'https' or 'local'
+	User   string // might be empty for http and local urls
+	Host   string // host or host:port
+	Path   string // path to the repo
+	Repo   string // repository name from the path includes .git
 }
 
 // NormaliseURL will return normalised url
@@ -55,29 +55,29 @@ func ParseGitURL(rawURL string) (*GitURL, error) {
 	switch {
 	case isSCPURL(rawURL):
 		sections = scpURLRgx.FindStringSubmatch(rawURL)
-		gURL.scheme = "scp"
-		gURL.user = sections[scpURLRgx.SubexpIndex("user")]
-		gURL.host = sections[scpURLRgx.SubexpIndex("host")]
-		gURL.path = sections[scpURLRgx.SubexpIndex("path")]
-		gURL.repo = sections[scpURLRgx.SubexpIndex("repo")]
+		gURL.Scheme = "scp"
+		gURL.User = sections[scpURLRgx.SubexpIndex("user")]
+		gURL.Host = sections[scpURLRgx.SubexpIndex("host")]
+		gURL.Path = sections[scpURLRgx.SubexpIndex("path")]
+		gURL.Repo = sections[scpURLRgx.SubexpIndex("repo")]
 	case isSSHURL(rawURL):
 		sections = sshURLRgx.FindStringSubmatch(rawURL)
-		gURL.scheme = "ssh"
-		gURL.user = sections[sshURLRgx.SubexpIndex("user")]
-		gURL.host = sections[sshURLRgx.SubexpIndex("host")]
-		gURL.path = sections[sshURLRgx.SubexpIndex("path")]
-		gURL.repo = sections[sshURLRgx.SubexpIndex("repo")]
+		gURL.Scheme = "ssh"
+		gURL.User = sections[sshURLRgx.SubexpIndex("user")]
+		gURL.Host = sections[sshURLRgx.SubexpIndex("host")]
+		gURL.Path = sections[sshURLRgx.SubexpIndex("path")]
+		gURL.Repo = sections[sshURLRgx.SubexpIndex("repo")]
 	case isHTTPSURL(rawURL):
 		sections = httpsURLRgx.FindStringSubmatch(rawURL)
-		gURL.scheme = "https"
-		gURL.host = sections[httpsURLRgx.SubexpIndex("host")]
-		gURL.path = sections[httpsURLRgx.SubexpIndex("path")]
-		gURL.repo = sections[httpsURLRgx.SubexpIndex("repo")]
+		gURL.Scheme = "https"
+		gURL.Host = sections[httpsURLRgx.SubexpIndex("host")]
+		gURL.Path = sections[httpsURLRgx.SubexpIndex("path")]
+		gURL.Repo = sections[httpsURLRgx.SubexpIndex("repo")]
 	case isLocalURL(rawURL):
 		sections = localURLRgx.FindStringSubmatch(rawURL)
-		gURL.scheme = "local"
-		gURL.path = sections[localURLRgx.SubexpIndex("path")]
-		gURL.repo = sections[localURLRgx.SubexpIndex("repo")]
+		gURL.Scheme = "local"
+		gURL.Path = sections[localURLRgx.SubexpIndex("path")]
+		gURL.Repo = sections[localURLRgx.SubexpIndex("repo")]
 	default:
 		return nil, fmt.Errorf(
 			"provided '%s' remote url is invalid, supported urls are 'user@host.xz:path/to/repo.git','ssh://user@host.xz/path/to/repo.git' or 'https://host.xz/path/to/repo.git'",
@@ -86,12 +86,12 @@ func ParseGitURL(rawURL string) (*GitURL, error) {
 
 	// scp path doesn't have leading "/"
 	// also removing training "/" for consistency
-	gURL.path = strings.Trim(gURL.path, "/")
+	gURL.Path = strings.Trim(gURL.Path, "/")
 
-	if gURL.path == "" {
+	if gURL.Path == "" {
 		return nil, fmt.Errorf("repo path (org) cannot be empty")
 	}
-	if gURL.repo == "" || gURL.repo == ".git" {
+	if gURL.Repo == "" || gURL.Repo == ".git" {
 		return nil, fmt.Errorf("repo name is invalid")
 	}
 
@@ -102,9 +102,9 @@ func ParseGitURL(rawURL string) (*GitURL, error) {
 // git URLs can be represented in multiple schemes so if host, path and repo name
 // of URLs are same then those URLs are for the same remote repository
 func SameURL(lURL, rURL *GitURL) bool {
-	return lURL.host == rURL.host &&
-		lURL.path == rURL.path &&
-		lURL.repo == rURL.repo
+	return lURL.Host == rURL.Host &&
+		lURL.Path == rURL.Path &&
+		lURL.Repo == rURL.Repo
 }
 
 // SameRawURL returns whether or not the two remote URL strings are equivalent

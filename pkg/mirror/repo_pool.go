@@ -91,7 +91,7 @@ func (rp *RepoPool) StartLoop() {
 			go repo.StartLoop(context.TODO())
 			continue
 		}
-		rp.log.Info("start loop is already running", "repo", repo.gitURL.repo)
+		rp.log.Info("start loop is already running", "repo", repo.gitURL.Repo)
 	}
 }
 
@@ -129,7 +129,7 @@ func (rp *RepoPool) validateLinkPath(repo *Repository, link string) error {
 		for _, wl := range r.workTreeLinks {
 			if wl.link == newAbsLink {
 				return fmt.Errorf("repo with overlapping abs link path found repo:%s path:%s",
-					r.gitURL.repo, wl.link)
+					r.gitURL.Repo, wl.link)
 			}
 		}
 	}

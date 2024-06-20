@@ -77,7 +77,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 		log = slog.Default()
 	}
 
-	log = log.With("repo", gURL.repo)
+	log = log.With("repo", gURL.Repo)
 
 	if !filepath.IsAbs(repoConf.Root) {
 		return nil, fmt.Errorf("repository root '%s' must be absolute", repoConf.Root)
@@ -98,7 +98,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 	// hence we can add repo dir (with .git suffix to indicate bare repo) to the provided root.
 	// this also makes it safe to delete this dir and re-create it if needed
 	// also this root could have been shared with other mirror repository (repoPool)
-	repoDir := gURL.repo
+	repoDir := gURL.Repo
 	if !strings.HasSuffix(repoDir, ".git") {
 		repoDir += ".git"
 	}
@@ -365,7 +365,7 @@ func (r *Repository) StartLoop(ctx context.Context) {
 		if err != nil {
 			r.log.Error("repository mirror failed", "err", err)
 		}
-		recordGitMirror(r.gitURL.repo, err == nil)
+		recordGitMirror(r.gitURL.Repo, err == nil)
 
 		t := time.NewTimer(r.interval)
 		select {
@@ -387,17 +387,17 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	defer updateMirrorLatency(r.gitURL.repo, time.Now())
+	defer updateMirrorLatency(r.gitURL.Repo, time.Now())
 
 	start := time.Now()
 
 	if err := r.init(ctx); err != nil {
-		return fmt.Errorf("unable to init repo:%s  err:%w", r.gitURL.repo, err)
+		return fmt.Errorf("unable to init repo:%s  err:%w", r.gitURL.Repo, err)
 	}
 
 	refs, err := r.fetch(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to fetch repo:%s  err:%w", r.gitURL.repo, err)
+		return fmt.Errorf("unable to fetch repo:%s  err:%w", r.gitURL.Repo, err)
 	}
 
 	fetchTime := time.Since(start)
@@ -406,7 +406,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	// so always ensure worktree even if nothing fetched
 	for _, wl := range r.workTreeLinks {
 		if err := r.ensureWorktreeLink(ctx, wl); err != nil {
-			return fmt.Errorf("unable to ensure worktree links repo:%s link:%s  err:%w", r.gitURL.repo, wl.name, err)
+			return fmt.Errorf("unable to ensure worktree links repo:%s link:%s  err:%w", r.gitURL.Repo, wl.name, err)
 		}
 	}
 
@@ -416,7 +416,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	}
 
 	if err := r.cleanup(ctx); err != nil {
-		return fmt.Errorf("unable to cleanup repo:%s  err:%w", r.gitURL.repo, err)
+		return fmt.Errorf("unable to cleanup repo:%s  err:%w", r.gitURL.Repo, err)
 	}
 
 	r.log.Info("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))

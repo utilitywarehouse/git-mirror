@@ -33,7 +33,7 @@ func TestNewRepo(t *testing.T) {
 				gc:        "always",
 			},
 			&Repository{
-				gitURL:        &GitURL{scheme: "scp", user: "user", host: "host.xz", path: "path/to", repo: "repo.git"},
+				gitURL:        &GitURL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 				remote:        "user@host.xz:path/to/repo.git",
 				root:          "/tmp",
 				dir:           "/tmp/repo.git",
@@ -119,7 +119,7 @@ func TestNewRepo(t *testing.T) {
 
 func TestRepo_AddWorktreeLink(t *testing.T) {
 	r := &Repository{
-		gitURL:        &GitURL{scheme: "scp", user: "user", host: "host.xz", path: "path/to", repo: "repo.git"},
+		gitURL:        &GitURL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 		root:          "/tmp/root",
 		interval:      10 * time.Second,
 		auth:          nil,
