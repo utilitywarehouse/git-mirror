@@ -1,4 +1,4 @@
-package mirror
+package giturl
 
 import (
 	"fmt"
@@ -23,8 +23,8 @@ var (
 	localURLRgx = regexp.MustCompile(`^file:///(?P<path>([\w\-\.]+\/)*)(?P<repo>[\w\-\.]+(\.git)?)$`)
 )
 
-// GitURL represents parsed git url
-type GitURL struct {
+// URL represents parsed git url
+type URL struct {
 	Scheme string // value will be either 'scp', 'ssh', 'https' or 'local'
 	User   string // might be empty for http and local urls
 	Host   string // host or host:port
@@ -40,40 +40,40 @@ func NormaliseURL(rawURL string) string {
 	return nURL
 }
 
-// ParseGitURL parses a raw url into a GitURL structure.
+// Parse parses a raw url into a GitURL structure.
 // valid git urls are...
 //   - user@host.xz:path/to/repo.git
 //   - ssh://user@host.xz[:port]/path/to/repo.git
 //   - https://host.xz[:port]/path/to/repo.git
-func ParseGitURL(rawURL string) (*GitURL, error) {
-	gURL := &GitURL{}
+func Parse(rawURL string) (*URL, error) {
+	gURL := &URL{}
 
 	rawURL = NormaliseURL(rawURL)
 
 	var sections []string
 
 	switch {
-	case isSCPURL(rawURL):
+	case IsSCPURL(rawURL):
 		sections = scpURLRgx.FindStringSubmatch(rawURL)
 		gURL.Scheme = "scp"
 		gURL.User = sections[scpURLRgx.SubexpIndex("user")]
 		gURL.Host = sections[scpURLRgx.SubexpIndex("host")]
 		gURL.Path = sections[scpURLRgx.SubexpIndex("path")]
 		gURL.Repo = sections[scpURLRgx.SubexpIndex("repo")]
-	case isSSHURL(rawURL):
+	case IsSSHURL(rawURL):
 		sections = sshURLRgx.FindStringSubmatch(rawURL)
 		gURL.Scheme = "ssh"
 		gURL.User = sections[sshURLRgx.SubexpIndex("user")]
 		gURL.Host = sections[sshURLRgx.SubexpIndex("host")]
 		gURL.Path = sections[sshURLRgx.SubexpIndex("path")]
 		gURL.Repo = sections[sshURLRgx.SubexpIndex("repo")]
-	case isHTTPSURL(rawURL):
+	case IsHTTPSURL(rawURL):
 		sections = httpsURLRgx.FindStringSubmatch(rawURL)
 		gURL.Scheme = "https"
 		gURL.Host = sections[httpsURLRgx.SubexpIndex("host")]
 		gURL.Path = sections[httpsURLRgx.SubexpIndex("path")]
 		gURL.Repo = sections[httpsURLRgx.SubexpIndex("repo")]
-	case isLocalURL(rawURL):
+	case IsLocalURL(rawURL):
 		sections = localURLRgx.FindStringSubmatch(rawURL)
 		gURL.Scheme = "local"
 		gURL.Path = sections[localURLRgx.SubexpIndex("path")]
@@ -101,7 +101,7 @@ func ParseGitURL(rawURL string) (*GitURL, error) {
 // SameURL returns whether or not the two parsed git URLs are equivalent.
 // git URLs can be represented in multiple schemes so if host, path and repo name
 // of URLs are same then those URLs are for the same remote repository
-func SameURL(lURL, rURL *GitURL) bool {
+func SameURL(lURL, rURL *URL) bool {
 	return lURL.Host == rURL.Host &&
 		lURL.Path == rURL.Path &&
 		lURL.Repo == rURL.Repo
@@ -109,11 +109,11 @@ func SameURL(lURL, rURL *GitURL) bool {
 
 // SameRawURL returns whether or not the two remote URL strings are equivalent
 func SameRawURL(lRepo, rRepo string) (bool, error) {
-	lURL, err := ParseGitURL(lRepo)
+	lURL, err := Parse(lRepo)
 	if err != nil {
 		return false, err
 	}
-	rURL, err := ParseGitURL(rRepo)
+	rURL, err := Parse(rRepo)
 	if err != nil {
 		return false, err
 	}
@@ -121,22 +121,22 @@ func SameRawURL(lRepo, rRepo string) (bool, error) {
 	return SameURL(lURL, rURL), nil
 }
 
-// isSCPURL returns true if supplied URL is scp-like syntax
-func isSCPURL(rawURL string) bool {
+// IsSCPURL returns true if supplied URL is scp-like syntax
+func IsSCPURL(rawURL string) bool {
 	return scpURLRgx.MatchString(rawURL)
 }
 
-// isSSHURL returns true if supplied URL is SSH URL
-func isSSHURL(rawURL string) bool {
+// IsSSHURL returns true if supplied URL is SSH URL
+func IsSSHURL(rawURL string) bool {
 	return sshURLRgx.MatchString(rawURL)
 }
 
-// isHTTPSURL returns true if supplied URL is HTTPS URL
-func isHTTPSURL(rawURL string) bool {
+// IsHTTPSURL returns true if supplied URL is HTTPS URL
+func IsHTTPSURL(rawURL string) bool {
 	return httpsURLRgx.MatchString(rawURL)
 }
 
-// isLocalURL returns true if supplied URL is HTTPS URL
-func isLocalURL(rawURL string) bool {
+// IsLocalURL returns true if supplied URL is HTTPS URL
+func IsLocalURL(rawURL string) bool {
 	return localURLRgx.MatchString(rawURL)
 }
