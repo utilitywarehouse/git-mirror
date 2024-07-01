@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
 )
 
 func TestNewRepo(t *testing.T) {
@@ -33,7 +34,7 @@ func TestNewRepo(t *testing.T) {
 				gc:        "always",
 			},
 			&Repository{
-				gitURL:        &GitURL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
+				gitURL:        &giturl.URL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 				remote:        "user@host.xz:path/to/repo.git",
 				root:          "/tmp",
 				dir:           "/tmp/repo.git",
@@ -110,7 +111,7 @@ func TestNewRepo(t *testing.T) {
 				t.Errorf("NewRepository() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if diff := cmp.Diff(tt.want, got, cmpopts.IgnoreFields(Repository{}, "log", "lock", "stop", "stopped"), cmp.AllowUnexported(Repository{}, GitURL{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.IgnoreFields(Repository{}, "log", "lock", "stop", "stopped"), cmp.AllowUnexported(Repository{}, giturl.URL{})); diff != "" {
 				t.Errorf("NewRepository() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -119,7 +120,7 @@ func TestNewRepo(t *testing.T) {
 
 func TestRepo_AddWorktreeLink(t *testing.T) {
 	r := &Repository{
-		gitURL:        &GitURL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
+		gitURL:        &giturl.URL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 		root:          "/tmp/root",
 		interval:      10 * time.Second,
 		auth:          nil,

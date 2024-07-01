@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
 )
 
 var (
@@ -97,13 +99,13 @@ func (rp *RepoPool) StartLoop() {
 
 // Repository will return Repository object based on given remote URL
 func (rp *RepoPool) Repository(remote string) (*Repository, error) {
-	gitURL, err := ParseGitURL(remote)
+	gitURL, err := giturl.Parse(remote)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, repo := range rp.repos {
-		if SameURL(repo.gitURL, gitURL) {
+		if giturl.SameURL(repo.gitURL, gitURL) {
 			return repo, nil
 		}
 	}

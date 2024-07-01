@@ -1,4 +1,4 @@
-package mirror
+package giturl
 
 import (
 	"testing"
@@ -11,60 +11,60 @@ func TestParseGitURL(t *testing.T) {
 	tests := []struct {
 		name    string
 		rawURL  string
-		want    *GitURL
+		want    *URL
 		wantErr bool
 	}{
 		{"1",
 			"user@host.xz:path/to/repo.git",
-			&GitURL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
+			&URL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 			false,
 		},
 		{"2",
 			"git@github.com:org/repo",
-			&GitURL{Scheme: "scp", User: "git", Host: "github.com", Path: "org", Repo: "repo"},
+			&URL{Scheme: "scp", User: "git", Host: "github.com", Path: "org", Repo: "repo"},
 			false},
 		{"3",
 			"ssh://user@host.xz:123/path/to/repo.git",
-			&GitURL{Scheme: "ssh", User: "user", Host: "host.xz:123", Path: "path/to", Repo: "repo.git"},
+			&URL{Scheme: "ssh", User: "user", Host: "host.xz:123", Path: "path/to", Repo: "repo.git"},
 			false},
 		{"4",
 			"ssh://git@github.com/org/repo",
-			&GitURL{Scheme: "ssh", User: "git", Host: "github.com", Path: "org", Repo: "repo"},
+			&URL{Scheme: "ssh", User: "git", Host: "github.com", Path: "org", Repo: "repo"},
 			false},
 		{"5",
 			"https://host.xz:345/path/to/repo.git",
-			&GitURL{Scheme: "https", Host: "host.xz:345", Path: "path/to", Repo: "repo.git"},
+			&URL{Scheme: "https", Host: "host.xz:345", Path: "path/to", Repo: "repo.git"},
 			false},
 		{"6",
 			"https://github.com/org/repo",
-			&GitURL{Scheme: "https", Host: "github.com", Path: "org", Repo: "repo"},
+			&URL{Scheme: "https", Host: "github.com", Path: "org", Repo: "repo"},
 			false},
 		{"7",
 			"https://host.xz:123/path/to/repo.git",
-			&GitURL{Scheme: "https", Host: "host.xz:123", Path: "path/to", Repo: "repo.git"},
+			&URL{Scheme: "https", Host: "host.xz:123", Path: "path/to", Repo: "repo.git"},
 			false},
 		{
 			"valid-special-char-scp",
 			"user.name-with_@host-with_x.xz:123:path-with_.x/to/prr.test_test-repo0.git",
-			&GitURL{Scheme: "scp", User: "user.name-with_", Host: "host-with_x.xz:123", Path: "path-with_.x/to", Repo: "prr.test_test-repo0.git"},
+			&URL{Scheme: "scp", User: "user.name-with_", Host: "host-with_x.xz:123", Path: "path-with_.x/to", Repo: "prr.test_test-repo0.git"},
 			false,
 		},
 		{
 			"valid-special-char-ssh",
 			"ssh://user.name-with_@host-with_x.xz:123/path-with_.x/to/prr.test_test-repo1.git",
-			&GitURL{Scheme: "ssh", User: "user.name-with_", Host: "host-with_x.xz:123", Path: "path-with_.x/to", Repo: "prr.test_test-repo1.git"},
+			&URL{Scheme: "ssh", User: "user.name-with_", Host: "host-with_x.xz:123", Path: "path-with_.x/to", Repo: "prr.test_test-repo1.git"},
 			false,
 		},
 		{
 			"valid-special-char-https",
 			"https://host-with_x.xz:123/path-with_.x/to/prr.test_test-repo2.git",
-			&GitURL{Scheme: "https", Host: "host-with_x.xz:123", Path: "path-with_.x/to", Repo: "prr.test_test-repo2.git"},
+			&URL{Scheme: "https", Host: "host-with_x.xz:123", Path: "path-with_.x/to", Repo: "prr.test_test-repo2.git"},
 			false,
 		},
 		{
 			"valid-special-char-local",
 			"file:///path-with_.x/to/prr.test_test-repo3.git",
-			&GitURL{Scheme: "local", Path: "path-with_.x/to", Repo: "prr.test_test-repo3.git"},
+			&URL{Scheme: "local", Path: "path-with_.x/to", Repo: "prr.test_test-repo3.git"},
 			false,
 		},
 
@@ -97,12 +97,12 @@ func TestParseGitURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ParseGitURL(tt.rawURL)
+			got, err := Parse(tt.rawURL)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParseGitURL() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateComparable(GitURL{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateComparable(URL{})); diff != "" {
 				t.Errorf("ParseGitURL() mismatch (-want +got):\n%s", diff)
 			}
 		})

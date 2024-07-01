@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
 )
 
 const (
@@ -47,7 +49,7 @@ const (
 // The implementation borrows heavily from https://github.com/kubernetes/git-sync.
 // A Repository is safe for concurrent use by multiple goroutines.
 type Repository struct {
-	gitURL        *GitURL                  // parsed remote git URL
+	gitURL        *giturl.URL              // parsed remote git URL
 	remote        string                   // remote repo to mirror
 	root          string                   // absolute path to the root where repo directory createdabsolute path to the root where repo directory created
 	dir           string                   // absolute path to the repo directory
@@ -66,9 +68,9 @@ type Repository struct {
 // NewRepository creates new repository from the given config.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called.
 func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (*Repository, error) {
-	remoteURL := NormaliseURL(repoConf.Remote)
+	remoteURL := giturl.NormaliseURL(repoConf.Remote)
 
-	gURL, err := ParseGitURL(remoteURL)
+	gURL, err := giturl.Parse(remoteURL)
 	if err != nil {
 		return nil, err
 	}
@@ -506,7 +508,7 @@ func (r *Repository) init(ctx context.Context) error {
 // and parse output to get default branch name
 func (r *Repository) getRemoteDefaultBranch(ctx context.Context) (string, error) {
 	envs := []string{}
-	if isSCPURL(r.remote) || isSSHURL(r.remote) {
+	if giturl.IsSCPURL(r.remote) || giturl.IsSSHURL(r.remote) {
 		envs = append(envs, r.auth.gitSSHCommand())
 	}
 
@@ -598,7 +600,7 @@ func (r *Repository) fetch(ctx context.Context) ([]string, error) {
 	args := []string{"fetch", "origin", "--prune", "--no-progress", "--porcelain", "--no-auto-gc"}
 
 	envs := []string{}
-	if isSCPURL(r.remote) || isSSHURL(r.remote) {
+	if giturl.IsSCPURL(r.remote) || giturl.IsSSHURL(r.remote) {
 		envs = append(envs, r.auth.gitSSHCommand())
 	}
 
