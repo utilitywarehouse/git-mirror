@@ -1165,7 +1165,7 @@ func Test_RepoPool_Success(t *testing.T) {
 	}
 
 	// run initial mirror
-	if err := rp.Mirror(context.TODO(), testTimeout); err != nil {
+	if err := rp.MirrorAll(context.TODO(), testTimeout); err != nil {
 		t.Fatalf("unexpected err:%s", err)
 	}
 

@@ -68,11 +68,11 @@ func (rp *RepoPool) AddRepository(repo *Repository) error {
 	return nil
 }
 
-// Mirror will trigger mirror on every repo in foreground with given timeout.
+// MirrorAll will trigger mirror on every repo in foreground with given timeout.
 // It will error out if any of the repository mirror errors.
-// Ideally Mirror should be used for the first mirror cycle to ensure repositories are
+// Ideally MirrorAll should be used for the first mirror cycle to ensure repositories are
 // successfully mirrored
-func (rp *RepoPool) Mirror(ctx context.Context, timeout time.Duration) error {
+func (rp *RepoPool) MirrorAll(ctx context.Context, timeout time.Duration) error {
 	for _, repo := range rp.repos {
 		mCtx, cancel := context.WithTimeout(ctx, timeout)
 		err := repo.Mirror(mCtx)
@@ -83,6 +83,16 @@ func (rp *RepoPool) Mirror(ctx context.Context, timeout time.Duration) error {
 	}
 
 	return nil
+}
+
+// Mirror is wrapper around repositories Mirror method
+func (rp *RepoPool) Mirror(ctx context.Context, remote string) error {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return err
+	}
+
+	return repo.Mirror(ctx)
 }
 
 // StartLoop will start mirror loop on all repositories
@@ -173,6 +183,27 @@ func (rp *RepoPool) ChangedFiles(ctx context.Context, remote, hash string) ([]st
 		return nil, err
 	}
 	return repo.ChangedFiles(ctx, hash)
+}
+
+// ChangedFilesBetweenRefs is wrapper around repositories ChangedFilesBetweenRefs method
+// git diff --name-only HEAD...refs/pull/13179/head
+// git diff --name-only --merge-base HEAD refs/pull/13179/head
+func (rp *RepoPool) ChangedFilesBetweenRefs(ctx context.Context, remote, ref1, ref2 string) ([]string, error) {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return nil, err
+	}
+	return repo.ChangedFilesBetweenRefs(ctx, ref1, ref2)
+}
+
+// CommitsBetweenRefs is wrapper around repositories CommitsBetweenRefs method
+// git rev-list ^HEAD refs/pull/13179/head
+func (rp *RepoPool) CommitsBetweenRefs(ctx context.Context, remote, ref1, ref2 string) ([]string, error) {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return nil, err
+	}
+	return repo.CommitsBetweenRefs(ctx, ref1, ref2)
 }
 
 // ObjectExists is wrapper around repositories ObjectExists method

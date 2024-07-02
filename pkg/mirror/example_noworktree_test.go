@@ -48,7 +48,7 @@ repositories:
 
 	// perform 1st mirror to ensure all repositories
 	// initial mirror might take longer
-	if err := repos.Mirror(ctx, 5*time.Minute); err != nil {
+	if err := repos.MirrorAll(ctx, 5*time.Minute); err != nil {
 		panic(err)
 	}
 
