@@ -220,52 +220,6 @@ func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, e
 	return strings.Split(msg, "\n"), nil
 }
 
-// ChangedFilesBetweenRefs returns path of the changed files between ref1 and ref2,
-// using the merge base of the two commits for the "before" side.
-// git diff --name-only HEAD...refs/pull/13179/head
-// git diff --name-only --merge-base HEAD refs/pull/13179/head
-func (r *Repository) ChangedFilesBetweenRefs(ctx context.Context, ref1, ref2 string) ([]string, error) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
-	if err := r.ObjectExists(ctx, ref1); err != nil {
-		return nil, err
-	}
-	if err := r.ObjectExists(ctx, ref2); err != nil {
-		return nil, err
-	}
-
-	// merge-base finds the best common ancestor(s) between two commits to use in a three-way merge.
-	args := []string{"diff", `--name-only`, `--merge-base`, ref1, ref2}
-	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
-	if err != nil {
-		return nil, err
-	}
-	return strings.Split(msg, "\n"), nil
-}
-
-// ChangedFiles returns list of all the commits which are reachable from ref2, but not from ref1".
-// list is in reverse order ie old commit -> new commit
-// git rev-list ^HEAD refs/pull/13179/head
-func (r *Repository) CommitsBetweenRefs(ctx context.Context, ref1, ref2 string) ([]string, error) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
-	if err := r.ObjectExists(ctx, ref1); err != nil {
-		return nil, err
-	}
-	if err := r.ObjectExists(ctx, ref2); err != nil {
-		return nil, err
-	}
-
-	args := []string{"rev-list", `--reverse`, "^" + ref1, ref2}
-	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
-	if err != nil {
-		return nil, err
-	}
-	return strings.Split(msg, "\n"), nil
-}
-
 // ObjectExists returns error is given object is not valid or if it doesn't exists
 func (r *Repository) ObjectExists(ctx context.Context, obj string) error {
 	r.lock.RLock()
