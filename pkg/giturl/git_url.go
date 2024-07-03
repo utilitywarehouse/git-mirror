@@ -104,7 +104,8 @@ func Parse(rawURL string) (*URL, error) {
 func SameURL(lURL, rURL *URL) bool {
 	return lURL.Host == rURL.Host &&
 		lURL.Path == rURL.Path &&
-		lURL.Repo == rURL.Repo
+		(lURL.Repo == rURL.Repo ||
+			strings.TrimSuffix(lURL.Repo, ".git") == strings.TrimSuffix(rURL.Repo, ".git"))
 }
 
 // SameRawURL returns whether or not the two remote URL strings are equivalent
