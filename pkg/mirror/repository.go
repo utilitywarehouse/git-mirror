@@ -11,10 +11,10 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
+	"github.com/utilitywarehouse/git-mirror/pkg/lock"
 )
 
 const (
@@ -49,6 +49,7 @@ const (
 // The implementation borrows heavily from https://github.com/kubernetes/git-sync.
 // A Repository is safe for concurrent use by multiple goroutines.
 type Repository struct {
+	lock          lock.RWMutex             // repository will be locked during mirror
 	gitURL        *giturl.URL              // parsed remote git URL
 	remote        string                   // remote repo to mirror
 	root          string                   // absolute path to the root where repo directory createdabsolute path to the root where repo directory created
@@ -60,7 +61,6 @@ type Repository struct {
 	envs          []string                 // envs which will be passed to git commands
 	running       bool                     // indicates if repository is running the mirror loop
 	workTreeLinks map[string]*WorkTreeLink // list of worktrees which will be maintained
-	lock          sync.RWMutex             // repository will be locked during mirror
 	stop, stopped chan bool                // chans to stop mirror loops
 	log           *slog.Logger
 }

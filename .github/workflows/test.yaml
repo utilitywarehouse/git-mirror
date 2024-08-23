@@ -4,7 +4,6 @@ on:
   push:
   pull_request:
 
-
 permissions:
   contents: read
 
@@ -12,17 +11,20 @@ jobs:
   pkg-test:
     strategy:
       matrix:
-        go-version: [1.21.x, 1.22.x]
+        go-version: [1.21.x, 1.22.x, 1.23.x]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ matrix.go-version }}
-    
-    - name: Test
-      run: go test -v -cover ./...
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Test
+        run: go test -v -cover ./...
+
+      - name: Test with race
+        run: go test -v -cover -race -count 1 -timeout 20s --tags deadlock_test -run Test_mirror_detect_race ./pkg/mirror/...
