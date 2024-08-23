@@ -188,12 +188,12 @@ func (r *Repository) LogMsg(ctx context.Context, ref, path string) (string, erro
 
 // Subject returns commit subject of given commit hash
 func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
 	if err := r.ObjectExists(ctx, hash); err != nil {
 		return "", err
 	}
+
+	r.lock.RLock()
+	defer r.lock.RUnlock()
 
 	args := []string{"show", `--no-patch`, `--format='%s'`, hash}
 	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
@@ -205,12 +205,12 @@ func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
 
 // ChangedFiles returns path of the changed files for given commit hash
 func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, error) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
 	if err := r.ObjectExists(ctx, hash); err != nil {
 		return nil, err
 	}
+
+	r.lock.RLock()
+	defer r.lock.RUnlock()
 
 	args := []string{"show", `--name-only`, `--pretty=format:`, hash}
 	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
