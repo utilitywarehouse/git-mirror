@@ -4,7 +4,7 @@ go 1.23.0
 
 require (
 	github.com/google/go-cmp v0.6.0
-	github.com/prometheus/client_golang v1.20.2
+	github.com/prometheus/client_golang v1.20.4
 	github.com/sasha-s/go-deadlock v0.3.5
 	gopkg.in/yaml.v3 v3.0.1
 )
