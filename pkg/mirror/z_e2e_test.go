@@ -832,7 +832,7 @@ func Test_commit_hash_files_merge(t *testing.T) {
 		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
 		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
 	}
-	if got, err := repo.CommitsOfMergeCommit(txtCtx, mergeCommit1); err != nil {
+	if got, err := repo.MergeCommits(txtCtx, mergeCommit1); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
 		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
@@ -867,7 +867,7 @@ func Test_commit_hash_files_merge(t *testing.T) {
 		{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
 		{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
 	}
-	if got, err := repo.CommitsOfMergeCommit(txtCtx, mergeCommit2); err != nil {
+	if got, err := repo.MergeCommits(txtCtx, mergeCommit2); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
 		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
@@ -901,7 +901,7 @@ func Test_commit_hash_files_merge(t *testing.T) {
 	wantDiffList = []CommitInfo{
 		{Hash: mergeCommit3, ChangedFiles: []string{filepath.Join("dir2", "file"), "file"}},
 	}
-	if got, err := repo.CommitsOfMergeCommit(txtCtx, mergeCommit3); err != nil {
+	if got, err := repo.MergeCommits(txtCtx, mergeCommit3); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
 		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)

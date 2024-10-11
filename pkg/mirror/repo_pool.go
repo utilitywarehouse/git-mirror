@@ -203,13 +203,13 @@ func (rp *RepoPool) Clone(ctx context.Context, remote, dst, branch, pathspec str
 	return repo.Clone(ctx, dst, branch, pathspec, rmGitDir)
 }
 
-// CommitsOfMergeCommit is wrapper around repositories CommitsOfMergeCommit method
-func (rp *RepoPool) CommitsOfMergeCommit(ctx context.Context, remote, mergeCommitHash string) ([]CommitInfo, error) {
+// MergeCommits is wrapper around repositories MergeCommits method
+func (rp *RepoPool) MergeCommits(ctx context.Context, remote, mergeCommitHash string) ([]CommitInfo, error) {
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return nil, err
 	}
-	return repo.CommitsOfMergeCommit(ctx, mergeCommitHash)
+	return repo.MergeCommits(ctx, mergeCommitHash)
 }
 
 // BranchCommits is wrapper around repositories BranchCommits method

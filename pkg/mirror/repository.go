@@ -217,9 +217,9 @@ type CommitInfo struct {
 	ChangedFiles []string
 }
 
-// CommitsOfMergeCommit lists commits from the mergeCommitHash but not from the first
+// MergeCommits lists commits from the mergeCommitHash but not from the first
 // parent of mergeCommitHash (mergeCommitHash^) in chronological order. (latest to oldest)
-func (r *Repository) CommitsOfMergeCommit(ctx context.Context, mergeCommitHash string) ([]CommitInfo, error) {
+func (r *Repository) MergeCommits(ctx context.Context, mergeCommitHash string) ([]CommitInfo, error) {
 	return r.ListCommitsWithChangedFiles(ctx, mergeCommitHash+"^", mergeCommitHash)
 }
 
