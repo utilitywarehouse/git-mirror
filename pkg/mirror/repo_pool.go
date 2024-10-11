@@ -202,3 +202,30 @@ func (rp *RepoPool) Clone(ctx context.Context, remote, dst, branch, pathspec str
 	}
 	return repo.Clone(ctx, dst, branch, pathspec, rmGitDir)
 }
+
+// CommitsOfMergeCommit is wrapper around repositories CommitsOfMergeCommit method
+func (rp *RepoPool) CommitsOfMergeCommit(ctx context.Context, remote, mergeCommitHash string) ([]CommitInfo, error) {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return nil, err
+	}
+	return repo.CommitsOfMergeCommit(ctx, mergeCommitHash)
+}
+
+// BranchCommits is wrapper around repositories BranchCommits method
+func (rp *RepoPool) BranchCommits(ctx context.Context, remote, branch string) ([]CommitInfo, error) {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return nil, err
+	}
+	return repo.BranchCommits(ctx, branch)
+}
+
+// ListCommitsWithChangedFiles is wrapper around repositories ListCommitsWithChangedFiles method
+func (rp *RepoPool) ListCommitsWithChangedFiles(ctx context.Context, remote, ref1, ref2 string) ([]CommitInfo, error) {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return nil, err
+	}
+	return repo.ListCommitsWithChangedFiles(ctx, ref1, ref2)
+}
