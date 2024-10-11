@@ -188,14 +188,10 @@ func (r *Repository) LogMsg(ctx context.Context, ref, path string) (string, erro
 
 // Subject returns commit subject of given commit hash
 func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
-	if err := r.ObjectExists(ctx, hash); err != nil {
-		return "", err
-	}
-
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	args := []string{"show", `--no-patch`, `--format='%s'`, hash}
+	args := []string{"show", `--no-patch`, `--format=%s`, hash}
 	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
 	if err != nil {
 		return "", err
@@ -205,10 +201,6 @@ func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
 
 // ChangedFiles returns path of the changed files for given commit hash
 func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, error) {
-	if err := r.ObjectExists(ctx, hash); err != nil {
-		return nil, err
-	}
-
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
@@ -218,6 +210,71 @@ func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, e
 		return nil, err
 	}
 	return strings.Split(msg, "\n"), nil
+}
+
+type CommitInfo struct {
+	Hash         string
+	ChangedFiles []string
+}
+
+// CommitsOfMergeCommit lists commits from the mergeCommitHash but not from the first
+// parent of mergeCommitHash (mergeCommitHash^) in chronological order. (latest to oldest)
+func (r *Repository) CommitsOfMergeCommit(ctx context.Context, mergeCommitHash string) ([]CommitInfo, error) {
+	return r.ListCommitsWithChangedFiles(ctx, mergeCommitHash+"^", mergeCommitHash)
+}
+
+// BranchCommits lists commits from the tip of the branch but not from the HEAD
+// of the repository in chronological order. (latest to oldest)
+func (r *Repository) BranchCommits(ctx context.Context, branch string) ([]CommitInfo, error) {
+	return r.ListCommitsWithChangedFiles(ctx, "HEAD", branch)
+}
+
+// ListCommitsWithChangedFiles returns path of the changed files for given commit hash
+// list all the commits and files which are reachable from 'ref2', but not from 'ref1'
+// The output is given in reverse chronological order.
+func (r *Repository) ListCommitsWithChangedFiles(ctx context.Context, ref1, ref2 string) ([]CommitInfo, error) {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	args := []string{"log", `--name-only`, `--pretty=format:%H`, ref1 + ".." + ref2}
+	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCommitWithChangedFilesList(msg), nil
+}
+
+// ParseCommitWithChangedFilesList will parse following output of 'show/log'
+// command with `--name-only`, `--pretty=format:%H` flags
+//
+// 72ea9c9de6963e97ac472d9ea996e384c6923cca
+//
+// 80e11d114dd3aa135c18573402a8e688599c69e0
+// one/readme.yaml
+// one/hello.tf
+// two/readme.yaml
+func ParseCommitWithChangedFilesList(output string) []CommitInfo {
+	commitCount := 0
+	Commits := []CommitInfo{}
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if IsFullCommitHash(line) {
+			Commits = append(Commits, CommitInfo{Hash: line})
+			commitCount += 1
+			continue
+		}
+		// if line is not commit or empty then its assumed to be changed file name
+		// also this file change belongs to the last commit
+		if commitCount > 0 {
+			Commits[commitCount-1].ChangedFiles = append(Commits[commitCount-1].ChangedFiles, line)
+		}
+	}
+
+	return Commits
 }
 
 // ObjectExists returns error is given object is not valid or if it doesn't exists
