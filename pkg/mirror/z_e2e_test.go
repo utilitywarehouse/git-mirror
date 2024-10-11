@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 const (
@@ -656,6 +658,16 @@ func Test_commit_hash_msg(t *testing.T) {
 	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
 	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
 
+	wantDiffList := []CommitInfo{
+		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+	}
+	if got, err := repo.BranchCommits(txtCtx, otherBranch); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
+		t.Errorf("BranchCommits() mismatch (-want +got):\n%s", diff)
+	}
+
 	t.Log("TEST-4: forward HEAD and other-branch")
 
 	dir1SHA4 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-4")
@@ -683,6 +695,20 @@ func Test_commit_hash_msg(t *testing.T) {
 	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
 	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA4, t.Name()+"-dir2-other-4", []string{filepath.Join("dir2", "file")})
 
+	wantDiffList = []CommitInfo{
+		// new commits
+		{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
+		{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		// old commits
+		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+	}
+	if got, err := repo.BranchCommits(txtCtx, otherBranch); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
+		t.Errorf("BranchCommits() mismatch (-want +got):\n%s", diff)
+	}
+
 	t.Log("TEST-4: move HEAD and other-branch backward to test3")
 
 	mustExec(t, upstream, "git", "checkout", "-q", otherBranch)
@@ -706,6 +732,17 @@ func Test_commit_hash_msg(t *testing.T) {
 	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA3, t.Name()+"-other-3", []string{"file"})
 	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
 	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
+
+	wantDiffList = []CommitInfo{
+		// old commits
+		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+	}
+	if got, err := repo.BranchCommits(txtCtx, otherBranch); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
+		t.Errorf("BranchCommits() mismatch (-want +got):\n%s", diff)
+	}
 
 	t.Log("TEST-5: move HEAD backward to test1 and delete other-branch")
 
@@ -737,6 +774,137 @@ func Test_commit_hash_msg(t *testing.T) {
 	}
 	if _, err := repo.LogMsg(txtCtx, otherBranch, "dir1"); err == nil {
 		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
+	}
+}
+
+func Test_commit_hash_files_merge(t *testing.T) {
+	testTmpDir := mustTmpDir(t)
+	defer os.RemoveAll(testTmpDir)
+
+	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
+	root := filepath.Join(testTmpDir, testRoot)
+	otherBranch := "other-branch"
+
+	t.Log("TEST-1: init upstream and verify 1st commit after mirror")
+
+	mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
+
+	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
+
+	t.Log("TEST-2: forward HEAD and create dir1 on HEAD")
+
+	dir1SHA2 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
+	fileSHA2 := mustCommit(t, upstream, "file", t.Name()+"-main-2")
+
+	// mirror new commits
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
+
+	assertCommitLog(t, repo, "HEAD", "", fileSHA2, t.Name()+"-main-2", []string{"file"})
+	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA2, t.Name()+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
+
+	t.Log("TEST-3: forward HEAD and create other-branch")
+
+	dir1SHA3 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-3")
+	// create branch and push commits
+	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
+	dir2SHA3 := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-3")
+	fileOtherSHA3 := mustCommit(t, upstream, "file", t.Name()+"-other-3")
+	// check out master and push more commit
+	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
+	mustCommit(t, upstream, "file2", t.Name()+"-main-3")
+	// merge other branch to master and get merge commit
+	mustExec(t, upstream, "git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v1")
+	mergeCommit1 := mustExec(t, upstream, "git", "rev-list", "-n1", "HEAD")
+
+	// mirror new commits
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
+
+	assertCommitLog(t, repo, "HEAD", "", mergeCommit1, "Merging otherBranch with no-ff v1", []string{})
+	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
+
+	wantDiffList := []CommitInfo{
+		{Hash: mergeCommit1},
+		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+	}
+	if got, err := repo.MergeCommits(txtCtx, mergeCommit1); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
+		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
+	}
+
+	t.Log("TEST-4: add more commits to same other-branch and merge")
+
+	dir1SHA4 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-4")
+	// switch to other branch and push commits
+	mustExec(t, upstream, "git", "checkout", "-q", otherBranch)
+	dir2SHA4 := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-4")
+	fileOtherSHA4 := mustCommit(t, upstream, "file", t.Name()+"-other-4")
+	// check out master and push more commit
+	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
+	mustCommit(t, upstream, "file2", t.Name()+"-main-4")
+	// merge other branch to master and get merge commit
+	mustExec(t, upstream, "git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v2")
+	mergeCommit2 := mustExec(t, upstream, "git", "rev-list", "-n1", "HEAD")
+
+	// mirror new commits
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
+
+	assertCommitLog(t, repo, "HEAD", "", mergeCommit2, "Merging otherBranch with no-ff v2", []string{})
+	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA4, t.Name()+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, testMainBranch, "dir2", dir2SHA4, t.Name()+"-dir2-other-4", []string{filepath.Join("dir2", "file")})
+
+	wantDiffList = []CommitInfo{
+		{Hash: mergeCommit2},
+		// new commits on same branch
+		{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
+		{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+	}
+	if got, err := repo.MergeCommits(txtCtx, mergeCommit2); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
+		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
+	}
+
+	t.Log("TEST-5: create new branch and then do squash merge")
+	otherBranch = otherBranch + "v2"
+
+	dir1SHA5 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-5")
+	// create branch and push commits
+	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
+	mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-5")
+	mustCommit(t, upstream, "file", t.Name()+"-other-5")
+	// check out master and push more commit
+	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
+	mustCommit(t, upstream, "file2", t.Name()+"-main-5")
+	// merge other branch to master and get merge commit
+	mustExec(t, upstream, "git", "merge", "--squash", otherBranch)
+	mustExec(t, upstream, "git", "commit", "-m", "Merging otherBranch with squash v1")
+	mergeCommit3 := mustExec(t, upstream, "git", "rev-list", "-n1", "HEAD")
+
+	// mirror new commits
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
+
+	assertCommitLog(t, repo, "HEAD", "", mergeCommit3, "Merging otherBranch with squash v1", []string{})
+	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA5, t.Name()+"-dir1-main-5", []string{filepath.Join("dir1", "file")})
+	assertCommitLog(t, repo, "HEAD", "dir2", mergeCommit3, "Merging otherBranch with squash v1", []string{filepath.Join("dir2", "file"), "file"})
+
+	wantDiffList = []CommitInfo{
+		{Hash: mergeCommit3, ChangedFiles: []string{filepath.Join("dir2", "file"), "file"}},
+	}
+	if got, err := repo.MergeCommits(txtCtx, mergeCommit3); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
+		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
 	}
 }
 
@@ -1578,10 +1746,12 @@ func assertCommitLog(t *testing.T, repo *Repository,
 		t.Errorf("subject mismatch sha:%s got:%s want:%s", gotHash, got, wantSub)
 	}
 
-	if got, err := repo.ChangedFiles(txtCtx, gotHash); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if slices.Compare(got, wantChangedFiles) != 0 {
-		t.Errorf("changed file mismatch sha:%s got:%s want:%s", gotHash, got, wantChangedFiles)
+	if len(wantChangedFiles) > 0 {
+		if got, err := repo.ChangedFiles(txtCtx, gotHash); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		} else if slices.Compare(got, wantChangedFiles) != 0 {
+			t.Errorf("changed file mismatch sha:%s got:%s want:%s", gotHash, got, wantChangedFiles)
+		}
 	}
 }
 

@@ -166,3 +166,64 @@ func TestRepo_AddWorktreeLink(t *testing.T) {
 		t.Errorf("Repo.AddWorktreeLink() worktreelinks mismatch (-want +got):\n%s", diff)
 	}
 }
+
+func TestParseCommitWithChangedFilesList(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   []CommitInfo
+	}{
+		{
+			"empty",
+			`
+
+			`,
+			[]CommitInfo{},
+		},
+		{
+			"only_commit",
+			`267fc66a734de9e4de57d9d20c83566a69cd703c
+			`,
+			[]CommitInfo{{Hash: "267fc66a734de9e4de57d9d20c83566a69cd703c"}},
+		},
+		{
+			"no_changed_files",
+			`
+267fc66a734de9e4de57d9d20c83566a69cd703c
+
+
+			`,
+			[]CommitInfo{{Hash: "267fc66a734de9e4de57d9d20c83566a69cd703c"}},
+		},
+		{
+			"multiple_commits",
+			`267fc66a734de9e4de57d9d20c83566a69cd703c
+1f68b80bc259e067fdb3dc4bb82cdbd43645e392
+one/hello.tf
+
+72ea9c9de6963e97ac472d9ea996e384c6923cca
+readme
+
+80e11d114dd3aa135c18573402a8e688599c69e0
+one/readme
+one/hello.tf
+two/readme
+
+			`,
+			[]CommitInfo{
+				{Hash: "267fc66a734de9e4de57d9d20c83566a69cd703c"},
+				{Hash: "1f68b80bc259e067fdb3dc4bb82cdbd43645e392", ChangedFiles: []string{"one/hello.tf"}},
+				{Hash: "72ea9c9de6963e97ac472d9ea996e384c6923cca", ChangedFiles: []string{"readme"}},
+				{Hash: "80e11d114dd3aa135c18573402a8e688599c69e0", ChangedFiles: []string{"one/readme", "one/hello.tf", "two/readme"}},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseCommitWithChangedFilesList(tt.output)
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("ParseCommitWithChangedFilesList() output mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
