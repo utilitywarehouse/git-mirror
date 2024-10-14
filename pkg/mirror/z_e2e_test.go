@@ -769,12 +769,6 @@ func Test_commit_hash_msg(t *testing.T) {
 	if _, err := repo.Hash(txtCtx, otherBranch, "dir1"); err == nil {
 		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
 	}
-	if _, err := repo.LogMsg(txtCtx, otherBranch, ""); err == nil {
-		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
-	}
-	if _, err := repo.LogMsg(txtCtx, otherBranch, "dir1"); err == nil {
-		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
-	}
 }
 
 func Test_commit_hash_files_merge(t *testing.T) {
@@ -1398,17 +1392,6 @@ func Test_RepoPool_Success(t *testing.T) {
 		t.Errorf("remote2 hash mismatch got:%s want:%s", got, fileU2SHA2)
 	}
 
-	if got, err := rp.LogMsg(txtCtx, remote1, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if !strings.Contains(got, t.Name()+"-u1-main-2") {
-		t.Errorf("remote1 commit msg mismatch got:%s want:%s", got, t.Name()+"-u1-main-2")
-	}
-	if got, err := rp.LogMsg(txtCtx, remote2, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if !strings.Contains(got, t.Name()+"-u2-main-2") {
-		t.Errorf("remote2 commit msg mismatch got:%s want:%s", got, t.Name()+"-u2-main-2")
-	}
-
 	// after mirror we should expect a symlink at root and a file with test function name
 	assertLinkedFile(t, root, "link1", "file", t.Name()+"-u1-main-2")
 	assertLinkedFile(t, root, "link3", "file", t.Name()+"-u1-main-2")
@@ -1450,17 +1433,6 @@ func Test_RepoPool_Success(t *testing.T) {
 		t.Fatalf("unexpected err:%s", err)
 	} else if got != fileU2SHA1 {
 		t.Errorf("remote2 hash mismatch got:%s want:%s", got, fileU2SHA1)
-	}
-
-	if got, err := rp.LogMsg(txtCtx, remote1, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if !strings.Contains(got, t.Name()+"-u1-main-1") {
-		t.Errorf("remote1 commit msg mismatch got:%s want:%s", got, t.Name()+"-u1-main-1")
-	}
-	if got, err := rp.LogMsg(txtCtx, remote2, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if !strings.Contains(got, t.Name()+"-u2-main-1") {
-		t.Errorf("remote2 commit msg mismatch got:%s want:%s", got, t.Name()+"-u2-main-1")
 	}
 
 	// after mirror we should expect a symlink at root and a file with test function name
@@ -1571,11 +1543,6 @@ func Test_RepoPool_Error(t *testing.T) {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
 	}
 	if _, err := rp.Hash(context.Background(), nonExistingRemote, "HEAD", ""); err == nil {
-		t.Errorf("unexpected success for non existing repo")
-	} else if err != ErrNotExist {
-		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
-	}
-	if _, err := rp.LogMsg(context.Background(), nonExistingRemote, "HEAD", ""); err == nil {
 		t.Errorf("unexpected success for non existing repo")
 	} else if err != ErrNotExist {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
@@ -1719,21 +1686,12 @@ func assertCommitLog(t *testing.T, repo *Repository,
 	ref, path, wantSHA, wantSub string,
 	wantChangedFiles []string) {
 	t.Helper()
-	var wantMsg string
 	// add user info
-	if wantSub != "" {
-		wantMsg = fmt.Sprintf("%s (%s)", wantSub, testGitUser)
-	}
 	gotHash, err := repo.Hash(txtCtx, ref, path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	} else if gotHash != wantSHA {
 		t.Errorf("ref '%s' on path '%s' SHA mismatch got:%s want:%s", ref, path, gotHash, wantSHA)
-	}
-	if got, err := repo.LogMsg(txtCtx, ref, path); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if got != wantMsg {
-		t.Errorf("ref '%s' on path '%s' Msg mismatch got:%s want:%s", ref, path, got, wantMsg)
 	}
 
 	if wantSHA == "" {

@@ -158,15 +158,6 @@ func (rp *RepoPool) Hash(ctx context.Context, remote, ref, path string) (string,
 	return repo.Hash(ctx, ref, path)
 }
 
-// LogMsg is wrapper around repositories LogMsg method
-func (rp *RepoPool) LogMsg(ctx context.Context, remote, ref, path string) (string, error) {
-	repo, err := rp.Repository(remote)
-	if err != nil {
-		return "", err
-	}
-	return repo.LogMsg(ctx, ref, path)
-}
-
 // Subject is wrapper around repositories Subject method
 func (rp *RepoPool) Subject(ctx context.Context, remote, hash string) (string, error) {
 	repo, err := rp.Repository(remote)
