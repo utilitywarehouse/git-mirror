@@ -168,24 +168,6 @@ func (r *Repository) Hash(ctx context.Context, ref, path string) (string, error)
 	return r.hash(ctx, ref, path)
 }
 
-// LogMsg returns the formatted log subject with author info of the given
-// revision and for the path if specified.
-func (r *Repository) LogMsg(ctx context.Context, ref, path string) (string, error) {
-	r.lock.RLock()
-	defer r.lock.RUnlock()
-
-	args := []string{"log", `--pretty=format:'%s (%an)'`, "-n", "1", ref}
-	if path != "" {
-		args = append(args, "--", path)
-	}
-	// git log --pretty=format:'%s (%an)' -n 1 <ref> [-- <path>]
-	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
-	if err != nil {
-		return "", err
-	}
-	return strings.Trim(msg, "'"), nil
-}
-
 // Subject returns commit subject of given commit hash
 func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
 	r.lock.RLock()

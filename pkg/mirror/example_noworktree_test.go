@@ -61,7 +61,7 @@ repositories:
 	}
 	fmt.Println("last commit hash at main", "hash", hash)
 
-	msg, err := repos.LogMsg(ctx, "https://github.com/utilitywarehouse/git-mirror.git", "main", "")
+	msg, err := repos.Subject(ctx, "https://github.com/utilitywarehouse/git-mirror.git", "main")
 	if err != nil {
 		panic(err)
 	}
