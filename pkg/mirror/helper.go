@@ -228,3 +228,8 @@ func runGitCommand(ctx context.Context, log *slog.Logger, envs []string, cwd str
 
 	return stdout, nil
 }
+
+// jitter returns a time.Duration between duration and duration + maxFactor * duration.
+func jitter(duration time.Duration, maxFactor float64) time.Duration {
+	return duration + time.Duration(rand.Float64()*maxFactor*float64(duration))
+}
