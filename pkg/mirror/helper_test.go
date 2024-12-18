@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 )
@@ -372,6 +373,40 @@ t1643d7874890dca5982facfba9c4f24da53876e9 4c286e182bc4d1832a8739b18c19ecaf9262c3
 				t.Errorf("updatedRefs() mismatch (-want +got):\n%s", diff)
 			}
 
+		})
+	}
+}
+
+func TestJitter(t *testing.T) {
+	type args struct {
+		duration  time.Duration
+		maxFactor float64
+	}
+	tests := []struct {
+		name    string
+		args    args
+		minWant time.Duration
+		maxWant time.Duration
+	}{
+		{"1", args{10 * time.Second, 0.1}, 10 * time.Second, 11 * time.Second},
+		{"2", args{10 * time.Second, 0.5}, 10 * time.Second, 15 * time.Second},
+		{"3", args{10 * time.Second, 0.0}, 10 * time.Second, 10 * time.Second},
+		{"4", args{30 * time.Second, 0.1}, 30 * time.Second, 33 * time.Second},
+		{"5", args{30 * time.Second, 0.5}, 30 * time.Second, 45 * time.Second},
+		{"6", args{30 * time.Second, 0.0}, 30 * time.Second, 30 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// since we are using rand test values 10 times
+			for i := 0; i < 10; i++ {
+				got := jitter(tt.args.duration, tt.args.maxFactor)
+				if got < tt.minWant {
+					t.Errorf("jitter() = %v, min-want %v", got, tt.minWant)
+				}
+				if got > tt.maxWant {
+					t.Errorf("jitter() = %v, max-want %v", got, tt.maxWant)
+				}
+			}
 		})
 	}
 }

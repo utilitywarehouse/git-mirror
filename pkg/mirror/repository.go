@@ -408,7 +408,7 @@ func (r *Repository) StartLoop(ctx context.Context) {
 		}
 		recordGitMirror(r.gitURL.Repo, err == nil)
 
-		t := time.NewTimer(r.interval)
+		t := time.NewTimer(jitter(r.interval, 0.2))
 		select {
 		case <-t.C:
 		case <-ctx.Done():
