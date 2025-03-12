@@ -123,7 +123,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 	}
 
 	for _, wtc := range repoConf.Worktrees {
-		if err := repo.AddWorktreeLink(wtc.Link, wtc.Ref, wtc.Ref); err != nil {
+		if err := repo.AddWorktreeLink(wtc.Link, wtc.Ref, wtc.Pathspec); err != nil {
 			return nil, fmt.Errorf("unable to create worktree link err:%w", err)
 		}
 	}
@@ -706,7 +706,6 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 
 	if currentHash == remoteHash {
 		if wl.sanityCheckWorktree(ctx) {
-			wl.log.Debug("current hash is same as remote and checks passed", "hash", currentHash)
 			return nil
 		}
 		wl.log.Error("worktree failed checks, re-creating...", "path", currentPath)
