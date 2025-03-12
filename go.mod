@@ -6,6 +6,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/prometheus/client_golang v1.21.0
 	github.com/sasha-s/go-deadlock v0.3.5
+	github.com/urfave/cli/v3 v3.0.0-beta1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
