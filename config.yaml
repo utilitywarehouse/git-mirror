@@ -1,0 +1,12 @@
+defaults:
+  interval: 30s
+  mirror_timeout: 2m
+  git_gc: always
+  auth:
+    ssh_key_path: /etc/git-secret/ssh
+    ssh_known_hosts_path: /etc/git-secret/known_hosts
+repositories:
+  - remote: https://github.com/utilitywarehouse/system-alerts
+    worktrees:
+      - link: target/alerts
+        ref: main
