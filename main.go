@@ -43,18 +43,6 @@ var (
 			Value:   "info",
 			Usage:   "Log level",
 		},
-		&cli.StringFlag{
-			Name:    "git-ssh-key-file",
-			Sources: cli.EnvVars("GIT_SSH_KEY_FILE"),
-			Value:   "/etc/git-secret/ssh",
-			Usage:   "The path to git ssh key which will be used to setup GIT_SSH_COMMAND env.",
-		},
-		&cli.StringFlag{
-			Name:    "git-ssh-known-hosts-file",
-			Sources: cli.EnvVars("GIT_SSH_KNOWN_HOSTS_FILE"),
-			Value:   "/etc/git-secret/known_hosts",
-			Usage:   "The local path to the known hosts file used to setup GIT_SSH_COMMAND env.",
-		},
 	}
 )
 
@@ -93,14 +81,6 @@ func applyGitDefaults(c *cli.Command, mirrorConf *mirror.RepoPoolConfig) *mirror
 
 	if mirrorConf.Defaults.MirrorTimeout == 0 {
 		mirrorConf.Defaults.MirrorTimeout = 2 * time.Minute
-	}
-
-	if mirrorConf.Defaults.Auth.SSHKeyPath == "" {
-		mirrorConf.Defaults.Auth.SSHKeyPath = c.String("git-ssh-key-file")
-	}
-
-	if mirrorConf.Defaults.Auth.SSHKnownHostsPath == "" {
-		mirrorConf.Defaults.Auth.SSHKnownHostsPath = c.String("git-ssh-known-hosts-file")
 	}
 
 	return mirrorConf

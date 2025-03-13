@@ -460,7 +460,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 		return fmt.Errorf("unable to cleanup repo:%s  err:%w", r.gitURL.Repo, err)
 	}
 
-	r.log.Info("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))
+	r.log.Debug("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))
 	return nil
 }
 
