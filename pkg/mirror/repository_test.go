@@ -132,35 +132,33 @@ func TestRepo_AddWorktreeLink(t *testing.T) {
 	}
 
 	type args struct {
-		link     string
-		ref      string
-		pathspec string
+		wtc WorktreeConfig
 	}
 	tests := []struct {
 		name    string
 		args    args
 		wantErr bool
 	}{
-		{"all-valid", args{"link", "master", ""}, false},
-		{"all-valid-with-path", args{"link2", "other-branch", "path"}, false},
-		{"duplicate-link", args{"link", "master", ""}, true},
-		{"no-link", args{"", "master", ""}, true},
-		{"no-ref", args{"link3", "", ""}, false},
-		{"absLink", args{"/tmp/link", "tag", ""}, false},
+		{"all-valid", args{wtc: WorktreeConfig{"link", "master", ""}}, false},
+		{"all-valid-with-path", args{wtc: WorktreeConfig{"link2", "other-branch", "path"}}, false},
+		{"duplicate-link", args{wtc: WorktreeConfig{"link", "master", ""}}, true},
+		{"no-link", args{wtc: WorktreeConfig{"", "master", ""}}, true},
+		{"no-ref", args{wtc: WorktreeConfig{"link3", "", ""}}, false},
+		{"absLink", args{wtc: WorktreeConfig{"/tmp/link", "tag", ""}}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if err := r.AddWorktreeLink(tt.args.link, tt.args.ref, tt.args.pathspec); (err != nil) != tt.wantErr {
+			if err := r.AddWorktreeLink(tt.args.wtc); (err != nil) != tt.wantErr {
 				t.Errorf("Repo.AddWorktreeLink() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}
 	// compare all worktree links
 	want := map[string]*WorkTreeLink{
-		"link":      {name: "link", link: "/tmp/root/link", ref: "master"},
-		"link2":     {name: "link2", link: "/tmp/root/link2", ref: "other-branch", pathspec: "path"},
-		"link3":     {name: "link3", link: "/tmp/root/link3", ref: "HEAD"},
-		"/tmp/link": {name: "link", link: "/tmp/link", ref: "tag"},
+		"link":      {link: "link", linkAbs: "/tmp/root/link", ref: "master"},
+		"link2":     {link: "link2", linkAbs: "/tmp/root/link2", ref: "other-branch", pathspec: "path"},
+		"link3":     {link: "link3", linkAbs: "/tmp/root/link3", ref: "HEAD"},
+		"/tmp/link": {link: "link", linkAbs: "/tmp/link", ref: "tag"},
 	}
 	if diff := cmp.Diff(want, r.workTreeLinks, cmpopts.IgnoreFields(WorkTreeLink{}, "log"), cmp.AllowUnexported(WorkTreeLink{})); diff != "" {
 		t.Errorf("Repo.AddWorktreeLink() worktreelinks mismatch (-want +got):\n%s", diff)

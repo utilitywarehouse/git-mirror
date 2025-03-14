@@ -9,8 +9,8 @@ import (
 )
 
 type WorkTreeLink struct {
-	name     string // link file name might not be unique only use it for logging
-	link     string // the path at which to create a symlink to the worktree dir
+	link     string // link name as its specified in config, might not be unique only use it for logging
+	linkAbs  string // the path at which to create a symlink to the worktree dir
 	ref      string // the ref of the worktree
 	pathspec string // pathspec of the dirs to checkout
 	log      *slog.Logger
@@ -20,13 +20,13 @@ type WorkTreeLink struct {
 // two worktree links can be on same ref but with diff pathspecs
 // hence we cant just use tree hash as path
 func (w *WorkTreeLink) worktreeDirName(hash string) string {
-	parts := strings.Split(strings.Trim(w.link, "/"), "/")
+	parts := strings.Split(strings.Trim(w.linkAbs, "/"), "/")
 	return parts[len(parts)-1] + "-" + hash[:7]
 }
 
 // currentWorktree reads symlink path of the given worktree link
 func (wl *WorkTreeLink) currentWorktree() (string, error) {
-	return readAbsLink(wl.link)
+	return readAbsLink(wl.linkAbs)
 }
 
 // workTreeHash returns the hash of the given revision and for the path if specified.

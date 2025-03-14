@@ -184,7 +184,7 @@ func Test_mirror_head_and_main(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -271,7 +271,7 @@ func Test_mirror_other_branch(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -333,10 +333,10 @@ func Test_mirror_with_pathspec(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(link2, ref2, pathSpec2); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, pathSpec2}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
-	if err := repo.AddWorktreeLink(link3, ref3, pathSpec3); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link3, ref3, pathSpec3}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -426,7 +426,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 
 	repo1 := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo1.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo1.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -442,7 +442,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 
 	repo2 := mustCreateRepoAndMirror(t, upstream, root, link1, ref2)
 	// add 2nd worktree
-	if err := repo2.AddWorktreeLink(link2, ref1, ""); err != nil {
+	if err := repo2.AddWorktreeLink(WorktreeConfig{link2, ref1, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -502,7 +502,7 @@ func Test_mirror_tag_sha(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -1229,7 +1229,7 @@ func Test_mirror_loop(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 
@@ -1322,7 +1322,7 @@ func Test_RepoPool_Success(t *testing.T) {
 
 	// add worktree
 	// we will verify this worktree in next mirror loop
-	if err := rp.AddWorktreeLink(remote1, "link3", "", ""); err != nil {
+	if err := rp.AddWorktreeLink(remote1, WorktreeConfig{"link3", "", ""}); err != nil {
 		t.Fatalf("unexpected err:%s", err)
 	}
 
@@ -1524,7 +1524,7 @@ func Test_RepoPool_Error(t *testing.T) {
 		t.Errorf("unexpected err:%s", err)
 	}
 
-	if err := rp.AddRepository(repo1); err == nil {
+	if err := rp.AddRepository(RepositoryConfig{Remote: repo1.remote}); err == nil {
 		t.Errorf("unexpected success for non existing repo")
 	} else if err != ErrExist {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
@@ -1574,7 +1574,7 @@ func mustCreateRepoAndMirror(t *testing.T, upstream, root, link, ref string) *Re
 		t.Fatalf("unable to create new repo error: %v", err)
 	}
 	if link != "" {
-		if err := repo.AddWorktreeLink(link, ref, ""); err != nil {
+		if err := repo.AddWorktreeLink(WorktreeConfig{link, ref, ""}); err != nil {
 			t.Fatalf("unable to add worktree error: %v", err)
 		}
 	}

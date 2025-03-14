@@ -52,7 +52,7 @@ type Repository struct {
 	lock          lock.RWMutex             // repository will be locked during mirror
 	gitURL        *giturl.URL              // parsed remote git URL
 	remote        string                   // remote repo to mirror
-	root          string                   // absolute path to the root where repo directory createdabsolute path to the root where repo directory created
+	root          string                   // absolute path to the root where repo directory created
 	dir           string                   // absolute path to the repo directory
 	interval      time.Duration            // how long to wait between mirrors
 	mirrorTimeout time.Duration            // the total time allowed for the mirror loop
@@ -123,40 +123,38 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 	}
 
 	for _, wtc := range repoConf.Worktrees {
-		if err := repo.AddWorktreeLink(wtc.Link, wtc.Ref, wtc.Pathspec); err != nil {
+		if err := repo.AddWorktreeLink(wtc); err != nil {
 			return nil, fmt.Errorf("unable to create worktree link err:%w", err)
 		}
 	}
 	return repo, nil
 }
 
-// AddWorktreeLink adds add workTree link to the mirror repository.
-func (r *Repository) AddWorktreeLink(link, ref, pathspec string) error {
-	if link == "" {
+// AddWorktreeLink adds workTree link to the mirror repository.
+func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
+	if wtc.Link == "" {
 		return fmt.Errorf("symlink path cannot be empty")
 	}
 
-	if v, ok := r.workTreeLinks[link]; ok {
-		return fmt.Errorf("worktree with given link already exits link:%s ref:%s", v.link, v.ref)
+	if v, ok := r.workTreeLinks[wtc.Link]; ok {
+		return fmt.Errorf("worktree with given link already exits link:%s ref:%s", v.linkAbs, v.ref)
 	}
 
-	linkAbs := absLink(r.root, link)
+	linkAbs := absLink(r.root, wtc.Link)
 
-	if ref == "" {
-		ref = "HEAD"
+	if wtc.Ref == "" {
+		wtc.Ref = "HEAD"
 	}
-
-	_, linkFile := splitAbs(link)
 
 	wt := &WorkTreeLink{
-		name:     linkFile,
-		link:     linkAbs,
-		ref:      ref,
-		pathspec: pathspec,
-		log:      r.log.With("worktree", linkFile),
+		link:     wtc.Link,
+		linkAbs:  linkAbs,
+		ref:      wtc.Ref,
+		pathspec: wtc.Pathspec,
+		log:      r.log.With("worktree", wtc.Link),
 	}
 
-	r.workTreeLinks[link] = wt
+	r.workTreeLinks[wtc.Link] = wt
 	return nil
 }
 
@@ -447,7 +445,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	// so always ensure worktree even if nothing fetched
 	for _, wl := range r.workTreeLinks {
 		if err := r.ensureWorktreeLink(ctx, wl); err != nil {
-			return fmt.Errorf("unable to ensure worktree links repo:%s link:%s  err:%w", r.gitURL.Repo, wl.name, err)
+			return fmt.Errorf("unable to ensure worktree links repo:%s link:%s  err:%w", r.gitURL.Repo, wl.link, err)
 		}
 	}
 
@@ -664,7 +662,7 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 	// get remote hash from mirrored repo for the worktree link
 	remoteHash, err := r.hash(ctx, wl.ref, wl.pathspec)
 	if err != nil {
-		return fmt.Errorf("unable to get hash for worktree:%s err:%w", wl.name, err)
+		return fmt.Errorf("unable to get hash for worktree:%s err:%w", wl.link, err)
 	}
 	var currentHash, currentPath string
 
@@ -714,10 +712,10 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 	wl.log.Info("worktree update required", "remoteHash", remoteHash, "currentHash", currentHash)
 	newPath, err := r.createWorktree(ctx, wl, remoteHash)
 	if err != nil {
-		return fmt.Errorf("unable to create worktree for '%s' err:%w", wl.name, err)
+		return fmt.Errorf("unable to create worktree for '%s' err:%w", wl.link, err)
 	}
 
-	if err = publishSymlink(wl.link, newPath); err != nil {
+	if err = publishSymlink(wl.linkAbs, newPath); err != nil {
 		return fmt.Errorf("unable to publish symlink err:%w", err)
 	}
 
@@ -834,7 +832,7 @@ func (r *Repository) removeStaleWorktrees() (int, error) {
 	for _, wt := range r.workTreeLinks {
 		t, err := wt.currentWorktree()
 		if err != nil {
-			r.log.Error("unable to read worktree link", "worktree", wt.name, "err", err)
+			r.log.Error("unable to read worktree link", "worktree", wt.link, "err", err)
 			continue
 		}
 		if t != "" {
