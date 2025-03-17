@@ -158,7 +158,7 @@ func TestRepo_AddWorktreeLink(t *testing.T) {
 		"link":      {link: "link", linkAbs: "/tmp/root/link", ref: "master"},
 		"link2":     {link: "link2", linkAbs: "/tmp/root/link2", ref: "other-branch", pathspec: "path"},
 		"link3":     {link: "link3", linkAbs: "/tmp/root/link3", ref: "HEAD"},
-		"/tmp/link": {link: "link", linkAbs: "/tmp/link", ref: "tag"},
+		"/tmp/link": {link: "/tmp/link", linkAbs: "/tmp/link", ref: "tag"},
 	}
 	if diff := cmp.Diff(want, r.workTreeLinks, cmpopts.IgnoreFields(WorkTreeLink{}, "log"), cmp.AllowUnexported(WorkTreeLink{})); diff != "" {
 		t.Errorf("Repo.AddWorktreeLink() worktreelinks mismatch (-want +got):\n%s", diff)
