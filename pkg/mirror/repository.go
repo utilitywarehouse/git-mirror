@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -156,6 +157,13 @@ func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
 
 	r.workTreeLinks[wtc.Link] = wt
 	return nil
+}
+
+func (r *Repository) WorktreeLinks() map[string]*WorkTreeLink {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	return maps.Clone(r.workTreeLinks)
 }
 
 // Hash returns the hash of the given revision and for the path if specified.
@@ -417,6 +425,13 @@ func (r *Repository) StartLoop(ctx context.Context) {
 	}
 }
 
+// StopLoop stops sync loop gracefully
+func (r *Repository) StopLoop() {
+	r.stop <- true
+	<-r.stopped
+	r.log.Info("repository mirror loop stopped")
+}
+
 // Mirror will run mirror loop of the repository
 //  1. init and validate if existing repo dir
 //  2. fetch remote
@@ -459,6 +474,38 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	}
 
 	r.log.Debug("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))
+	return nil
+}
+
+// RemoveWorktreeLink removes workTree link from the mirror repository.
+// it will remove published link as well even if it failed to remove worktree
+func (r *Repository) RemoveWorktreeLink(link string) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	wl, ok := r.workTreeLinks[link]
+	if !ok {
+		return fmt.Errorf("worktree with given link not found")
+	}
+
+	defer func() {
+		// remove worktree link from repo object
+		delete(r.workTreeLinks, link)
+		// remove published link
+		if err := os.Remove(wl.linkAbs); err != nil {
+			r.log.Error("unable to remove published link", "err", err)
+		}
+	}()
+
+	wtPath, err := wl.currentWorktree()
+	if err != nil {
+		return err
+	}
+
+	if err := r.removeWorktree(context.TODO(), wtPath); err != nil {
+		return err
+	}
+
 	return nil
 }
 
