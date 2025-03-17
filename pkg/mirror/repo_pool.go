@@ -97,13 +97,15 @@ func (rp *RepoPool) Mirror(ctx context.Context, remote string) error {
 
 // StartLoop will start mirror loop on all repositories
 // if its not already started
-func (rp *RepoPool) StartLoop() {
+func (rp *RepoPool) StartLoop(ctx context.Context) {
+	rp.lock.RLock()
+	defer rp.lock.RUnlock()
+
 	for _, repo := range rp.repos {
 		if !repo.running {
-			go repo.StartLoop(context.TODO())
+			go repo.StartLoop(ctx)
 			continue
 		}
-		rp.log.Info("start loop is already running", "repo", repo.gitURL.Repo)
 	}
 }
 
