@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"slices"
 	"time"
 
 	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
+	"github.com/utilitywarehouse/git-mirror/pkg/lock"
 )
 
 var (
@@ -18,37 +21,27 @@ var (
 // it provides simple wrapper around Repository methods.
 // A RepoPool is safe for concurrent use by multiple goroutines.
 type RepoPool struct {
-	log   *slog.Logger
-	repos []*Repository
+	lock       lock.RWMutex
+	log        *slog.Logger
+	repos      []*Repository
+	commonENVs []string
 }
 
 // NewRepoPool will create mirror repositories based on given config.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
 func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
-	if err := conf.ValidateDefaults(); err != nil {
+	if err := conf.ValidateAndApplyDefaults(); err != nil {
 		return nil, err
 	}
-
-	if err := conf.ValidateLinkPaths(); err != nil {
-		return nil, err
-	}
-
-	conf.ApplyDefaults()
 
 	if log == nil {
 		log = slog.Default()
 	}
 
-	rp := &RepoPool{log: log}
+	rp := &RepoPool{log: log, commonENVs: commonENVs}
 
 	for _, repoConf := range conf.Repositories {
-
-		repo, err := NewRepository(repoConf, commonENVs, log)
-		if err != nil {
-			return nil, err
-		}
-
-		if err := rp.AddRepository(repo); err != nil {
+		if err := rp.AddRepository(repoConf); err != nil {
 			return nil, err
 		}
 	}
@@ -58,11 +51,19 @@ func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*R
 
 // AddRepository will add given repository to repoPool.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
-func (rp *RepoPool) AddRepository(repo *Repository) error {
-	if repo, _ := rp.Repository(repo.remote); repo != nil {
+func (rp *RepoPool) AddRepository(repoConf RepositoryConfig) error {
+	remoteURL := giturl.NormaliseURL(repoConf.Remote)
+	if repo, _ := rp.Repository(remoteURL); repo != nil {
 		return ErrExist
 	}
 
+	rp.lock.Lock()
+	defer rp.lock.Unlock()
+
+	repo, err := NewRepository(repoConf, rp.commonENVs, rp.log)
+	if err != nil {
+		return err
+	}
 	rp.repos = append(rp.repos, repo)
 
 	return nil
@@ -73,6 +74,9 @@ func (rp *RepoPool) AddRepository(repo *Repository) error {
 // Ideally MirrorAll should be used for the first mirror cycle to ensure repositories are
 // successfully mirrored
 func (rp *RepoPool) MirrorAll(ctx context.Context, timeout time.Duration) error {
+	rp.lock.RLock()
+	defer rp.lock.RUnlock()
+
 	for _, repo := range rp.repos {
 		mCtx, cancel := context.WithTimeout(ctx, timeout)
 		err := repo.Mirror(mCtx)
@@ -116,6 +120,9 @@ func (rp *RepoPool) Repository(remote string) (*Repository, error) {
 		return nil, err
 	}
 
+	rp.lock.RLock()
+	defer rp.lock.RUnlock()
+
 	for _, repo := range rp.repos {
 		if repo.gitURL.Equals(gitURL) {
 			return repo, nil
@@ -125,25 +132,28 @@ func (rp *RepoPool) Repository(remote string) (*Repository, error) {
 }
 
 // AddWorktreeLink is wrapper around repositories AddWorktreeLink method
-func (rp *RepoPool) AddWorktreeLink(remote string, link, ref, pathspec string) error {
+func (rp *RepoPool) AddWorktreeLink(remote string, wt WorktreeConfig) error {
+	rp.lock.RLock()
+	defer rp.lock.RUnlock()
+
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return err
 	}
-	if err := rp.validateLinkPath(repo, link); err != nil {
+	if err := rp.validateLinkPath(repo, wt.Link); err != nil {
 		return err
 	}
-	return repo.AddWorktreeLink(link, ref, pathspec)
+	return repo.AddWorktreeLink(wt)
 }
 
 func (rp *RepoPool) validateLinkPath(repo *Repository, link string) error {
 	newAbsLink := absLink(repo.root, link)
 
 	for _, r := range rp.repos {
-		for _, wl := range r.workTreeLinks {
-			if wl.link == newAbsLink {
+		for _, wl := range r.WorktreeLinks() {
+			if wl.linkAbs == newAbsLink {
 				return fmt.Errorf("repo with overlapping abs link path found repo:%s path:%s",
-					r.gitURL.Repo, wl.link)
+					r.gitURL.Repo, wl.linkAbs)
 			}
 		}
 	}
