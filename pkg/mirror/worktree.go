@@ -16,6 +16,12 @@ type WorkTreeLink struct {
 	log      *slog.Logger
 }
 
+func (wt *WorkTreeLink) Equals(wtc WorktreeConfig) bool {
+	return wt.link == wtc.Link &&
+		wt.pathspec == wtc.Pathspec &&
+		wt.ref == wtc.Ref
+}
+
 // worktreeDirName will generate worktree name for specific worktree link
 // two worktree links can be on same ref but with diff pathspecs
 // hence we cant just use tree hash as path
