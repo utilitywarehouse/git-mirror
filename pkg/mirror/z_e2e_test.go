@@ -215,6 +215,17 @@ func Test_mirror_head_and_main(t *testing.T) {
 	}
 	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
+
+	// remove worktrees
+	if err := repo.RemoveWorktreeLink(link2); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link2)
+
+	if err := repo.RemoveWorktreeLink(link1); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link1)
 }
 
 func Test_mirror_bad_ref(t *testing.T) {
@@ -310,6 +321,17 @@ func Test_mirror_other_branch(t *testing.T) {
 	}
 	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-other-1")
+
+	// remove worktrees
+	if err := repo.RemoveWorktreeLink(link2); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link2)
+
+	if err := repo.RemoveWorktreeLink(link1); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link1)
 }
 
 func Test_mirror_with_pathspec(t *testing.T) {
@@ -1268,12 +1290,9 @@ func Test_mirror_loop(t *testing.T) {
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
 
 	// STOP mirror loop
-	repo.stop <- true
-
-	time.Sleep(testInterval)
-
-	if repo.running != false {
-		t.Errorf("repo still running after sending stop signal")
+	repo.StopLoop()
+	if repo.running {
+		t.Errorf("repo still running after calling StopLoop")
 	}
 }
 
@@ -1440,6 +1459,12 @@ func Test_RepoPool_Success(t *testing.T) {
 	assertLinkedFile(t, root, "link3", "file", t.Name()+"-u1-main-1")
 	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-1")
 
+	// remove worktrees
+	if err := rp.RemoveWorktreeLink(remote2, "link2"); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, "link2")
+
 	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, "", false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
@@ -1457,6 +1482,19 @@ func Test_RepoPool_Success(t *testing.T) {
 		}
 		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u2-main-1")
 	}
+
+	// remove repository
+	repo, _ := rp.Repository(remote1)
+	if err := rp.RemoveRepository(remote1); err != nil {
+		t.Errorf("unable to remove repository error: %v", err)
+	}
+	if len(rp.repos) > 1 {
+		t.Errorf("there should be only 1 repo in repoPool now")
+	}
+	// once repo is removed public link should be removed
+	assertMissingLink(t, root, "link1")
+	// root dir should be empty
+	assertMissingLink(t, repo.dir, "")
 }
 
 func Test_RepoPool_Error(t *testing.T) {

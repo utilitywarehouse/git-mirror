@@ -131,6 +131,17 @@ func (rp *RepoPool) Repository(remote string) (*Repository, error) {
 	return nil, ErrNotExist
 }
 
+func (rp *RepoPool) RepositoriesRemote() []string {
+	rp.lock.RLock()
+	defer rp.lock.RUnlock()
+
+	var urls []string
+	for _, repo := range rp.repos {
+		urls = append(urls, repo.remote)
+	}
+	return urls
+}
+
 // AddWorktreeLink is wrapper around repositories AddWorktreeLink method
 func (rp *RepoPool) AddWorktreeLink(remote string, wt WorktreeConfig) error {
 	rp.lock.RLock()
@@ -159,6 +170,42 @@ func (rp *RepoPool) validateLinkPath(repo *Repository, link string) error {
 	}
 
 	return nil
+}
+
+// RemoveWorktreeLink is wrapper around repositories RemoveWorktreeLink method
+func (rp *RepoPool) RemoveWorktreeLink(remote string, wtLink string) error {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return err
+	}
+	return repo.RemoveWorktreeLink(wtLink)
+}
+
+// RemoveRepository will remove given repository from the repoPool.
+func (rp *RepoPool) RemoveRepository(remote string) error {
+	rp.lock.Lock()
+	defer rp.lock.Unlock()
+
+	for i, repo := range rp.repos {
+		if repo.remote == remote {
+			rp.log.Info("removing repository mirror", "remote", repo.remote)
+
+			rp.repos = slices.Delete(rp.repos, i, i+1)
+
+			repo.StopLoop()
+
+			// remove all published links
+			for _, wt := range repo.WorktreeLinks() {
+				if err := os.Remove(wt.linkAbs); err != nil {
+					rp.log.Error("unable to remove published link", "err", err)
+				}
+			}
+
+			return os.RemoveAll(repo.dir)
+		}
+	}
+
+	return ErrNotExist
 }
 
 // Hash is wrapper around repositories hash method
