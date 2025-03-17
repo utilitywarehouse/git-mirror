@@ -2,6 +2,7 @@ package main
 
 import (
 	"log/slog"
+	"slices"
 	"testing"
 	"time"
 
@@ -174,6 +175,20 @@ func Test_diffWorktrees(t *testing.T) {
 			}
 
 			gotNewWTCs, gotRemovedWTs := diffWorktrees(repo, tt.newRepoConf)
+
+			// since these slices are based on map of worktrees order of elements
+			// differs between runs
+			slices.SortFunc(gotNewWTCs, func(a, b mirror.WorktreeConfig) int {
+				switch {
+				case a.Link > b.Link:
+					return 1
+				case a.Link == b.Link:
+					return 0
+				default:
+					return -1
+				}
+			})
+			slices.Sort(gotRemovedWTs)
 
 			if diff := cmp.Diff(gotNewWTCs, tt.wantNewWTCs); diff != "" {
 				t.Errorf("diffWorktrees() NewWTCs mismatch (-want +got):\n%s", diff)
