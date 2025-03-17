@@ -117,7 +117,7 @@ func (rp *RepoPool) Repository(remote string) (*Repository, error) {
 	}
 
 	for _, repo := range rp.repos {
-		if giturl.SameURL(repo.gitURL, gitURL) {
+		if repo.gitURL.Equals(gitURL) {
 			return repo, nil
 		}
 	}
