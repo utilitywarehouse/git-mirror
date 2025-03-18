@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/urfave/cli/v3"
 	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
 )
 
@@ -25,27 +26,6 @@ var (
 		"warn":  slog.LevelWarn,
 		"error": slog.LevelError,
 	}
-
-	flags = []cli.Flag{
-		&cli.StringFlag{
-			Name:    "config",
-			Sources: cli.EnvVars("GIT_MIRROR_CONFIG"),
-			Value:   "/etc/git-mirror/config.yaml",
-			Usage:   "Absolute path to the config file.",
-		},
-		&cli.StringFlag{
-			Name:    "log-level",
-			Sources: cli.EnvVars("LOG_LEVEL"),
-			Value:   "info",
-			Usage:   "Log level",
-		},
-		&cli.BoolFlag{
-			Name: "watch-config",
-			Usage: "watch config for changes and reload when changes encountered.\n" +
-				"Only changes related to add,remove repository or worktrees will be actioned.",
-			Value: true,
-		},
-	}
 )
 
 func init() {
@@ -55,62 +35,89 @@ func init() {
 	}))
 }
 
+func envString(key, fallback string) string {
+	value, ok := os.LookupEnv(key)
+	if ok {
+		return value
+	}
+	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	value, ok := os.LookupEnv(key)
+	if ok {
+		parsed, err := strconv.ParseBool(value)
+		if err == nil {
+			return parsed
+		}
+		return fallback
+	}
+	return fallback
+}
+
+func usage() {
+	fmt.Fprintf(os.Stderr, "NAME:\n")
+	fmt.Fprintf(os.Stderr, "\tgit-mirror - git-mirror is a tool to periodically mirror remote repositories locally.\n")
+	fmt.Fprintf(os.Stderr, "\nUsage:\n")
+	fmt.Fprintf(os.Stderr, "\tgit-mirror [global options]\n")
+	fmt.Fprintf(os.Stderr, "\nGLOBAL OPTIONS:\n")
+	fmt.Fprintf(os.Stderr, "\t-log-level value    (default: 'info') Log level [$LOG_LEVEL]\n")
+	fmt.Fprintf(os.Stderr, "\t-config value       (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]\n")
+	fmt.Fprintf(os.Stderr, "\t-watch-config value (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
+
+	os.Exit(2)
+}
+
 func main() {
-	cmd := &cli.Command{
-		Name:  "git-mirror",
-		Usage: "git-mirror is a tool to periodically mirror remote repositories locally.",
-		Flags: flags,
-		Action: func(ctx context.Context, c *cli.Command) error {
-			ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
 
-			// set log level according to argument
-			if v, ok := levelStrings[strings.ToLower(c.String("log-level"))]; ok {
-				loggerLevel.Set(v)
-			}
+	flagLogLevel := flag.String("log-level", envString("LOG_LEVEL", "info"), "Log level")
+	flagConfig := flag.String("config", envString("GIT_MIRROR_CONFIG", "/etc/git-mirror/config.yaml"), "Absolute path to the config file")
+	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
 
-			// path to resolve git
-			gitENV := []string{fmt.Sprintf("PATH=%s", os.Getenv("PATH"))}
+	flag.Usage = usage
+	flag.Parse()
 
-			// create empty repo pool which will be populated by watchConfig
-			repoPool, err := mirror.NewRepoPool(ctx, mirror.RepoPoolConfig{}, logger.With("logger", "git-mirror"), gitENV)
-			if err != nil {
-				logger.Error("could not create git mirror pool", "err", err)
-				os.Exit(1)
-			}
-
-			onConfigChange := func(config *mirror.RepoPoolConfig) {
-				ensureConfig(repoPool, config)
-				// start mirror Loop on newly added repos
-				repoPool.StartLoop()
-			}
-
-			// Start watching the config file
-			go WatchConfig(ctx, c.String("config"), 10*time.Second, onConfigChange)
-
-			//listenForShutdown
-			stop := make(chan os.Signal, 2)
-			signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
-			<-stop
-
-			logger.Info("shutting down...")
-			cancel()
-
-			select {
-			case <-repoPool.Stopped:
-				logger.Info("all repositories mirror loop is stopped")
-				os.Exit(0)
-
-			case <-stop:
-				logger.Info("second signal received, terminating")
-				os.Exit(1)
-			}
-			return nil
-		},
+	// set log level according to argument
+	if v, ok := levelStrings[strings.ToLower(*flagLogLevel)]; ok {
+		loggerLevel.Set(v)
 	}
 
-	if err := cmd.Run(context.Background(), os.Args); err != nil {
-		logger.Error("failed to run app", "err", err)
+	// path to resolve git
+	gitENV := []string{fmt.Sprintf("PATH=%s", os.Getenv("PATH"))}
+
+	// create empty repo pool which will be populated by watchConfig
+	repoPool, err := mirror.NewRepoPool(ctx, mirror.RepoPoolConfig{}, logger.With("logger", "git-mirror"), gitENV)
+	if err != nil {
+		logger.Error("could not create git mirror pool", "err", err)
+		os.Exit(1)
+	}
+
+	onConfigChange := func(config *mirror.RepoPoolConfig) {
+		ensureConfig(repoPool, config)
+		// start mirror Loop on newly added repos
+		repoPool.StartLoop()
+	}
+
+	// Start watching the config file
+	go WatchConfig(ctx, *flagConfig, *flagWatchConfig, 10*time.Second, onConfigChange)
+
+	//listenForShutdown
+	stop := make(chan os.Signal, 2)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	<-stop
+
+	logger.Info("shutting down...")
+	cancel()
+
+	select {
+	case <-repoPool.Stopped:
+		logger.Info("all repositories mirror loop is stopped")
+		os.Exit(0)
+
+	case <-stop:
+		logger.Info("second signal received, terminating")
 		os.Exit(1)
 	}
 }
