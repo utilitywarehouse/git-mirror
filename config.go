@@ -23,7 +23,7 @@ const (
 var defaultRoot = path.Join(os.TempDir(), "git-mirror", "src")
 
 // WatchConfig polls the config file every interval and reloads if modified
-func WatchConfig(ctx context.Context, path string, interval time.Duration, onChange func(*mirror.RepoPoolConfig)) {
+func WatchConfig(ctx context.Context, path string, watchConfig bool, interval time.Duration, onChange func(*mirror.RepoPoolConfig)) {
 	var lastModTime time.Time
 
 	for {
@@ -45,6 +45,10 @@ func WatchConfig(ctx context.Context, path string, interval time.Duration, onCha
 			} else {
 				onChange(newConfig)
 			}
+		}
+
+		if !watchConfig {
+			return
 		}
 
 		t := time.NewTimer(interval)
