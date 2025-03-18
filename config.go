@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path"
@@ -22,30 +23,20 @@ const (
 var defaultRoot = path.Join(os.TempDir(), "git-mirror", "src")
 
 // WatchConfig polls the config file every interval and reloads if modified
-func WatchConfig(path string, interval time.Duration, onChange func(*mirror.RepoPoolConfig)) {
+func WatchConfig(ctx context.Context, path string, interval time.Duration, onChange func(*mirror.RepoPoolConfig)) {
 	var lastModTime time.Time
 
-	// Load initial config
-	config, err := parseConfigFile(path)
-	if err != nil {
-		logger.Error("failed to load config", "err", err)
-	} else {
-		onChange(config)
-	}
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for range ticker.C {
+	for {
 		fileInfo, err := os.Stat(path)
 		if err != nil {
 			logger.Error("Error checking config file", "err", err)
+			time.Sleep(interval) // retry after given interval
 			continue
 		}
 
 		modTime := fileInfo.ModTime()
 		if modTime.After(lastModTime) {
-			logger.Info("config file modified, reloading...")
+			logger.Info("reloading config file...")
 			lastModTime = modTime
 
 			newConfig, err := parseConfigFile(path)
@@ -54,6 +45,13 @@ func WatchConfig(path string, interval time.Duration, onChange func(*mirror.Repo
 			} else {
 				onChange(newConfig)
 			}
+		}
+
+		t := time.NewTimer(interval)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return
 		}
 	}
 }

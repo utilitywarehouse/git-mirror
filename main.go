@@ -85,7 +85,7 @@ func main() {
 			}
 
 			// Start watching the config file
-			go WatchConfig(c.String("config"), 10*time.Second, onConfigChange)
+			go WatchConfig(ctx, c.String("config"), 10*time.Second, onConfigChange)
 
 			//listenForShutdown
 			stop := make(chan os.Signal, 2)
