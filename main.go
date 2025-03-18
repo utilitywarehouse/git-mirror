@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -25,10 +26,6 @@ var (
 		"warn":  slog.LevelWarn,
 		"error": slog.LevelError,
 	}
-
-	flagLogLevel    = flag.String("log-level", "info", "Log level")
-	flagConfig      = flag.String("config", "/etc/git-mirror/config.yaml", "Absolute path to the config file")
-	flagWatchConfig = flag.Bool("watch-config", true, "watch config for changes and reload when changes encountered")
 )
 
 func init() {
@@ -36,6 +33,26 @@ func init() {
 	logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level: loggerLevel,
 	}))
+}
+
+func envString(key, fallback string) string {
+	value, ok := os.LookupEnv(key)
+	if ok {
+		return value
+	}
+	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	value, ok := os.LookupEnv(key)
+	if ok {
+		parsed, err := strconv.ParseBool(value)
+		if err == nil {
+			return parsed
+		}
+		return fallback
+	}
+	return fallback
 }
 
 func usage() {
@@ -54,23 +71,12 @@ func usage() {
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	flagLogLevel := flag.String("log-level", envString("LOG_LEVEL", "info"), "Log level")
+	flagConfig := flag.String("config", envString("GIT_MIRROR_CONFIG", "/etc/git-mirror/config.yaml"), "Absolute path to the config file")
+	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
+
 	flag.Usage = usage
 	flag.Parse()
-
-	if v, ok := os.LookupEnv("LOG_LEVEL"); ok {
-		*flagLogLevel = v
-	}
-	if v, ok := os.LookupEnv("GIT_MIRROR_CONFIG"); ok {
-		*flagConfig = v
-	}
-	if v, ok := os.LookupEnv("GIT_MIRROR_WATCH_CONFIG"); ok {
-		if strings.EqualFold(v, "true") {
-			*flagWatchConfig = true
-		}
-		if strings.EqualFold(v, "false") {
-			*flagWatchConfig = false
-		}
-	}
 
 	// set log level according to argument
 	if v, ok := levelStrings[strings.ToLower(*flagLogLevel)]; ok {
