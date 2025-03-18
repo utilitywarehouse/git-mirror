@@ -44,7 +44,7 @@ repositories:
 
 	conf.Defaults.Root = tmpRoot
 
-	repos, err := mirror.NewRepoPool(conf, slog.Default(), nil)
+	repos, err := mirror.NewRepoPool(ctx, conf, slog.Default(), nil)
 	if err != nil {
 		panic(err)
 	}
@@ -56,7 +56,7 @@ repositories:
 	}
 
 	// start mirror Loop
-	repos.StartLoop(ctx)
+	repos.StartLoop()
 
 	hash, err := repos.Hash(ctx, "https://github.com/utilitywarehouse/git-mirror.git", "main", "")
 	if err != nil {

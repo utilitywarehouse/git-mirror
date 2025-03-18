@@ -21,15 +21,17 @@ var (
 // it provides simple wrapper around Repository methods.
 // A RepoPool is safe for concurrent use by multiple goroutines.
 type RepoPool struct {
+	ctx        context.Context
 	lock       lock.RWMutex
 	log        *slog.Logger
 	repos      []*Repository
 	commonENVs []string
+	Stopped    chan bool
 }
 
 // NewRepoPool will create mirror repositories based on given config.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
-func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
+func NewRepoPool(ctx context.Context, conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
 	if err := conf.ValidateAndApplyDefaults(); err != nil {
 		return nil, err
 	}
@@ -37,8 +39,43 @@ func NewRepoPool(conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*R
 	if log == nil {
 		log = slog.Default()
 	}
+	repoCtx, repoCancel := context.WithCancel(ctx)
 
-	rp := &RepoPool{log: log, commonENVs: commonENVs}
+	rp := &RepoPool{
+		ctx:        repoCtx,
+		log:        log,
+		commonENVs: commonENVs,
+		Stopped:    make(chan bool),
+	}
+
+	// start shutdown watcher
+	go func() {
+		defer func() {
+			close(rp.Stopped)
+		}()
+
+		// wait for shutdown signal
+		<-ctx.Done()
+
+		// signal repository
+		repoCancel()
+
+		for {
+			time.Sleep(time.Second)
+			// check if any repo mirror is still running
+			var running bool
+			for _, repo := range rp.repos {
+				if repo.running {
+					running = true
+					break
+				}
+			}
+
+			if !running {
+				return
+			}
+		}
+	}()
 
 	for _, repoConf := range conf.Repositories {
 		if err := rp.AddRepository(repoConf); err != nil {
@@ -101,13 +138,13 @@ func (rp *RepoPool) Mirror(ctx context.Context, remote string) error {
 
 // StartLoop will start mirror loop on all repositories
 // if its not already started
-func (rp *RepoPool) StartLoop(ctx context.Context) {
+func (rp *RepoPool) StartLoop() {
 	rp.lock.RLock()
 	defer rp.lock.RUnlock()
 
 	for _, repo := range rp.repos {
 		if !repo.running {
-			go repo.StartLoop(ctx)
+			go repo.StartLoop(rp.ctx)
 			continue
 		}
 	}

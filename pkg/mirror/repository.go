@@ -418,6 +418,7 @@ func (r *Repository) StartLoop(ctx context.Context) {
 		select {
 		case <-t.C:
 		case <-ctx.Done():
+			r.log.Info("context cancelled stopping mirror loop")
 			return
 		case <-r.stop:
 			return

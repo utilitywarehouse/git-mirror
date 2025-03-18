@@ -72,7 +72,7 @@ func main() {
 			gitENV := []string{fmt.Sprintf("PATH=%s", os.Getenv("PATH"))}
 
 			// create empty repo pool which will be populated by watchConfig
-			repoPool, err := mirror.NewRepoPool(mirror.RepoPoolConfig{}, logger.With("logger", "git-mirror"), gitENV)
+			repoPool, err := mirror.NewRepoPool(ctx, mirror.RepoPoolConfig{}, logger.With("logger", "git-mirror"), gitENV)
 			if err != nil {
 				logger.Error("could not create git mirror pool", "err", err)
 				os.Exit(1)
@@ -81,23 +81,30 @@ func main() {
 			onConfigChange := func(config *mirror.RepoPoolConfig) {
 				ensureConfig(repoPool, config)
 				// start mirror Loop on newly added repos
-				repoPool.StartLoop(ctx)
+				repoPool.StartLoop()
 			}
 
 			// Start watching the config file
 			go WatchConfig(c.String("config"), 10*time.Second, onConfigChange)
 
 			//listenForShutdown
-			stop := make(chan os.Signal, 1)
+			stop := make(chan os.Signal, 2)
 			signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 
 			<-stop
 
-			logger.Info("Shutting down...")
+			logger.Info("shutting down...")
 			cancel()
 
-			// TODO: wait for all repo sync to terminate
+			select {
+			case <-repoPool.Stopped:
+				logger.Info("all repositories mirror loop is stopped")
+				os.Exit(0)
 
+			case <-stop:
+				logger.Info("second signal received, terminating")
+				os.Exit(1)
+			}
 			return nil
 		},
 	}
