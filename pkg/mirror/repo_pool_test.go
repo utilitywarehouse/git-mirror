@@ -25,7 +25,7 @@ func TestRepoPool_validateLinkPath(t *testing.T) {
 		},
 	}
 
-	rp, err := NewRepoPool(rpc, nil, testENVs)
+	rp, err := NewRepoPool(t.Context(), rpc, nil, testENVs)
 	if err != nil {
 		t.Fatalf("unexpected err:%s", err)
 	}
