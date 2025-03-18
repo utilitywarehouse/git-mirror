@@ -183,6 +183,20 @@ func (rpc *RepoPoolConfig) ValidateLinkPaths() error {
 
 }
 
+// ValidateAndApplyDefaults will validate link paths and default and apply defaults
+func (conf *RepoPoolConfig) ValidateAndApplyDefaults() error {
+	if err := conf.ValidateDefaults(); err != nil {
+		return err
+	}
+
+	if err := conf.ValidateLinkPaths(); err != nil {
+		return err
+	}
+
+	conf.ApplyDefaults()
+	return nil
+}
+
 // gitSSHCommand returns the environment variable to be used for configuring
 // git over ssh.
 func (a Auth) gitSSHCommand() string {

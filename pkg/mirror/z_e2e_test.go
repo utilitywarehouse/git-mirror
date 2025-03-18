@@ -184,7 +184,7 @@ func Test_mirror_head_and_main(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -215,6 +215,17 @@ func Test_mirror_head_and_main(t *testing.T) {
 	}
 	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
+
+	// remove worktrees
+	if err := repo.RemoveWorktreeLink(link2); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link2)
+
+	if err := repo.RemoveWorktreeLink(link1); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link1)
 }
 
 func Test_mirror_bad_ref(t *testing.T) {
@@ -271,7 +282,7 @@ func Test_mirror_other_branch(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -310,6 +321,17 @@ func Test_mirror_other_branch(t *testing.T) {
 	}
 	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-other-1")
+
+	// remove worktrees
+	if err := repo.RemoveWorktreeLink(link2); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link2)
+
+	if err := repo.RemoveWorktreeLink(link1); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, link1)
 }
 
 func Test_mirror_with_pathspec(t *testing.T) {
@@ -333,10 +355,10 @@ func Test_mirror_with_pathspec(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(link2, ref2, pathSpec2); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, pathSpec2}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
-	if err := repo.AddWorktreeLink(link3, ref3, pathSpec3); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link3, ref3, pathSpec3}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -426,7 +448,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 
 	repo1 := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo1.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo1.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -442,7 +464,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 
 	repo2 := mustCreateRepoAndMirror(t, upstream, root, link1, ref2)
 	// add 2nd worktree
-	if err := repo2.AddWorktreeLink(link2, ref1, ""); err != nil {
+	if err := repo2.AddWorktreeLink(WorktreeConfig{link2, ref1, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -502,7 +524,7 @@ func Test_mirror_tag_sha(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -1229,7 +1251,7 @@ func Test_mirror_loop(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 
@@ -1268,12 +1290,9 @@ func Test_mirror_loop(t *testing.T) {
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
 
 	// STOP mirror loop
-	repo.stop <- true
-
-	time.Sleep(testInterval)
-
-	if repo.running != false {
-		t.Errorf("repo still running after sending stop signal")
+	repo.StopLoop()
+	if repo.running {
+		t.Errorf("repo still running after calling StopLoop")
 	}
 }
 
@@ -1322,7 +1341,7 @@ func Test_RepoPool_Success(t *testing.T) {
 
 	// add worktree
 	// we will verify this worktree in next mirror loop
-	if err := rp.AddWorktreeLink(remote1, "link3", "", ""); err != nil {
+	if err := rp.AddWorktreeLink(remote1, WorktreeConfig{"link3", "", ""}); err != nil {
 		t.Fatalf("unexpected err:%s", err)
 	}
 
@@ -1368,11 +1387,11 @@ func Test_RepoPool_Success(t *testing.T) {
 	t.Log("TEST-2: forward both upstream and test mirrors")
 
 	// start mirror loop
-	rp.StartLoop()
+	rp.StartLoop(t.Context())
 
 	time.Sleep(time.Second)
 	// start mirror loop again this should be no op
-	rp.StartLoop()
+	rp.StartLoop(t.Context())
 
 	fileU1SHA2 := mustCommit(t, upstream1, "file", t.Name()+"-u1-main-2")
 	fileU2SHA2 := mustCommit(t, upstream2, "file", t.Name()+"-u2-main-2")
@@ -1440,6 +1459,12 @@ func Test_RepoPool_Success(t *testing.T) {
 	assertLinkedFile(t, root, "link3", "file", t.Name()+"-u1-main-1")
 	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-1")
 
+	// remove worktrees
+	if err := rp.RemoveWorktreeLink(remote2, "link2"); err != nil {
+		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	assertMissingLink(t, root, "link2")
+
 	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, "", false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
@@ -1457,6 +1482,19 @@ func Test_RepoPool_Success(t *testing.T) {
 		}
 		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u2-main-1")
 	}
+
+	// remove repository
+	repo, _ := rp.Repository(remote1)
+	if err := rp.RemoveRepository(remote1); err != nil {
+		t.Errorf("unable to remove repository error: %v", err)
+	}
+	if len(rp.repos) > 1 {
+		t.Errorf("there should be only 1 repo in repoPool now")
+	}
+	// once repo is removed public link should be removed
+	assertMissingLink(t, root, "link1")
+	// root dir should be empty
+	assertMissingLink(t, repo.dir, "")
 }
 
 func Test_RepoPool_Error(t *testing.T) {
@@ -1497,7 +1535,7 @@ func Test_RepoPool_Error(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// start mirror loop
-	rp.StartLoop()
+	rp.StartLoop(t.Context())
 
 	time.Sleep(time.Second)
 
@@ -1524,7 +1562,7 @@ func Test_RepoPool_Error(t *testing.T) {
 		t.Errorf("unexpected err:%s", err)
 	}
 
-	if err := rp.AddRepository(repo1); err == nil {
+	if err := rp.AddRepository(RepositoryConfig{Remote: repo1.remote}); err == nil {
 		t.Errorf("unexpected success for non existing repo")
 	} else if err != ErrExist {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
@@ -1574,7 +1612,7 @@ func mustCreateRepoAndMirror(t *testing.T, upstream, root, link, ref string) *Re
 		t.Fatalf("unable to create new repo error: %v", err)
 	}
 	if link != "" {
-		if err := repo.AddWorktreeLink(link, ref, ""); err != nil {
+		if err := repo.AddWorktreeLink(WorktreeConfig{link, ref, ""}); err != nil {
 			t.Fatalf("unable to add worktree error: %v", err)
 		}
 	}

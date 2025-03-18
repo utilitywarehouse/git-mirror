@@ -31,7 +31,7 @@ func Test_mirror_detect_race(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(link2, ref2, ""); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree

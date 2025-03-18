@@ -98,10 +98,10 @@ func Parse(rawURL string) (*URL, error) {
 	return gURL, nil
 }
 
-// SameURL returns whether or not the two parsed git URLs are equivalent.
+// Equals returns whether or not the two parsed git URLs are equivalent.
 // git URLs can be represented in multiple schemes so if host, path and repo name
 // of URLs are same then those URLs are for the same remote repository
-func SameURL(lURL, rURL *URL) bool {
+func (lURL *URL) Equals(rURL *URL) bool {
 	return lURL.Host == rURL.Host &&
 		lURL.Path == rURL.Path &&
 		(lURL.Repo == rURL.Repo ||
@@ -119,7 +119,7 @@ func SameRawURL(lRepo, rRepo string) (bool, error) {
 		return false, err
 	}
 
-	return SameURL(lURL, rURL), nil
+	return lURL.Equals(rURL), nil
 }
 
 // IsSCPURL returns true if supplied URL is scp-like syntax

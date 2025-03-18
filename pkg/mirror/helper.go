@@ -125,7 +125,7 @@ func removeDirContents(dir string, log *slog.Logger) error {
 	})
 }
 
-// removeDirContents iterated the specified dir and removes entries
+// removeDirContentsIf iterated the specified dir and removes entries
 // if given function returns true for the given entry
 func removeDirContentsIf(dir string, log *slog.Logger, fn func(fi os.FileInfo) (bool, error)) error {
 	dirents, err := os.ReadDir(dir)

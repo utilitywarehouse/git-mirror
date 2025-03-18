@@ -56,7 +56,7 @@ repositories:
 	}
 
 	// start mirror Loop
-	repos.StartLoop()
+	repos.StartLoop(ctx)
 
 	hash, err := repos.Hash(ctx, "https://github.com/utilitywarehouse/git-mirror.git", "main", "")
 	if err != nil {
