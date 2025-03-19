@@ -66,9 +66,10 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\nUsage:\n")
 	fmt.Fprintf(os.Stderr, "\tgit-mirror [global options]\n")
 	fmt.Fprintf(os.Stderr, "\nGLOBAL OPTIONS:\n")
-	fmt.Fprintf(os.Stderr, "\t-log-level value    (default: 'info') Log level [$LOG_LEVEL]\n")
-	fmt.Fprintf(os.Stderr, "\t-config value       (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]\n")
-	fmt.Fprintf(os.Stderr, "\t-watch-config value (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
+	fmt.Fprintf(os.Stderr, "\t-log-level value          (default: 'info') Log level [$LOG_LEVEL]\n")
+	fmt.Fprintf(os.Stderr, "\t-config value             (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]\n")
+	fmt.Fprintf(os.Stderr, "\t-watch-config value       (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
+	fmt.Fprintf(os.Stderr, "\t-http-bind-address value  (default: ':8098') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
 
 	os.Exit(2)
 }
