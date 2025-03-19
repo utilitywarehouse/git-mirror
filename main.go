@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strconv"
@@ -12,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
 )
 
@@ -74,6 +79,7 @@ func main() {
 	flagLogLevel := flag.String("log-level", envString("LOG_LEVEL", "info"), "Log level")
 	flagConfig := flag.String("config", envString("GIT_MIRROR_CONFIG", "/etc/git-mirror/config.yaml"), "Absolute path to the config file")
 	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
+	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":8098"), "The address the web server binds to")
 
 	flag.Usage = usage
 	flag.Parse()
@@ -82,6 +88,26 @@ func main() {
 	if v, ok := levelStrings[strings.ToLower(*flagLogLevel)]; ok {
 		loggerLevel.Set(v)
 	}
+
+	mirror.EnableMetrics("", prometheus.NewRegistry())
+	prometheus.MustRegister(configSuccess, configSuccessTime)
+
+	server := &http.Server{
+		Addr:              *flagHttpBind,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       5 * time.Second,
+		ReadHeaderTimeout: 1 * time.Second,
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	server.Handler = mux
 
 	// path to resolve git
 	gitENV := []string{fmt.Sprintf("PATH=%s", os.Getenv("PATH"))}
@@ -93,14 +119,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	onConfigChange := func(config *mirror.RepoPoolConfig) {
-		ensureConfig(repoPool, config)
-		// start mirror Loop on newly added repos
-		repoPool.StartLoop()
+	onConfigChange := func(config *mirror.RepoPoolConfig) bool {
+		return ensureConfig(repoPool, config)
 	}
 
 	// Start watching the config file
 	go WatchConfig(ctx, *flagConfig, *flagWatchConfig, 10*time.Second, onConfigChange)
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error("HTTP server terminated", "err", err)
+		}
+	}()
 
 	//listenForShutdown
 	stop := make(chan os.Signal, 2)
@@ -109,6 +139,9 @@ func main() {
 	<-stop
 
 	logger.Info("shutting down...")
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error("failed to shutdown http server", "err", err)
+	}
 	cancel()
 
 	select {
