@@ -69,7 +69,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\t-log-level value          (default: 'info') Log level [$LOG_LEVEL]\n")
 	fmt.Fprintf(os.Stderr, "\t-config value             (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]\n")
 	fmt.Fprintf(os.Stderr, "\t-watch-config value       (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
-	fmt.Fprintf(os.Stderr, "\t-http-bind-address value  (default: ':8098') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
+	fmt.Fprintf(os.Stderr, "\t-http-bind-address value  (default: ':9001') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
 
 	os.Exit(2)
 }
@@ -80,7 +80,7 @@ func main() {
 	flagLogLevel := flag.String("log-level", envString("LOG_LEVEL", "info"), "Log level")
 	flagConfig := flag.String("config", envString("GIT_MIRROR_CONFIG", "/etc/git-mirror/config.yaml"), "Absolute path to the config file")
 	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
-	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":8098"), "The address the web server binds to")
+	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":9001"), "The address the web server binds to")
 
 	flag.Usage = usage
 	flag.Parse()

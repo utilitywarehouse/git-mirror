@@ -24,7 +24,7 @@ GLOBAL OPTIONS:
     -log-level value          (default: 'info') Log level [$LOG_LEVEL]
     -config value             (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]
     -watch-config value       (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]
-    -http-bind-address value  (default: ':8098') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]
+    -http-bind-address value  (default: ':9001') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]
 ```
 
 ## Config
