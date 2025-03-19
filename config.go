@@ -7,6 +7,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
 	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
 	"gopkg.in/yaml.v3"
@@ -20,31 +21,31 @@ const (
 	defaultSSHKnownHostsPath = "/etc/git-secret/known_hosts"
 )
 
-var defaultRoot = path.Join(os.TempDir(), "git-mirror")
+var (
+	defaultRoot = path.Join(os.TempDir(), "git-mirror")
+
+	configSuccess = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "git_mirror_config_last_reload_successful",
+		Help: "Whether the last configuration reload attempt was successful.",
+	})
+	configSuccessTime = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "git_mirror_config_last_reload_success_timestamp_seconds",
+		Help: "Timestamp of the last successful configuration reload.",
+	})
+)
 
 // WatchConfig polls the config file every interval and reloads if modified
-func WatchConfig(ctx context.Context, path string, watchConfig bool, interval time.Duration, onChange func(*mirror.RepoPoolConfig)) {
+func WatchConfig(ctx context.Context, path string, watchConfig bool, interval time.Duration, onChange func(*mirror.RepoPoolConfig) bool) {
 	var lastModTime time.Time
+	var success bool
 
 	for {
-		fileInfo, err := os.Stat(path)
-		if err != nil {
-			logger.Error("Error checking config file", "err", err)
-			time.Sleep(interval) // retry after given interval
-			continue
-		}
-
-		modTime := fileInfo.ModTime()
-		if modTime.After(lastModTime) {
-			logger.Info("reloading config file...")
-			lastModTime = modTime
-
-			newConfig, err := parseConfigFile(path)
-			if err != nil {
-				logger.Error("failed to reload config", "err", err)
-			} else {
-				onChange(newConfig)
-			}
+		lastModTime, success = loadConfig(path, lastModTime, onChange)
+		if success {
+			configSuccess.Set(1)
+			configSuccessTime.SetToCurrentTime()
+		} else {
+			configSuccess.Set(0)
 		}
 
 		if !watchConfig {
@@ -60,7 +61,30 @@ func WatchConfig(ctx context.Context, path string, watchConfig bool, interval ti
 	}
 }
 
-func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) {
+func loadConfig(path string, lastModTime time.Time, onChange func(*mirror.RepoPoolConfig) bool) (time.Time, bool) {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		logger.Error("Error checking config file", "err", err)
+		return lastModTime, false
+	}
+
+	modTime := fileInfo.ModTime()
+	if modTime.Equal(lastModTime) {
+		return lastModTime, true
+	}
+
+	logger.Info("reloading config file...")
+
+	newConfig, err := parseConfigFile(path)
+	if err != nil {
+		logger.Error("failed to reload config", "err", err)
+		return lastModTime, false
+	}
+	return modTime, onChange(newConfig)
+}
+
+func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) bool {
+	success := true
 
 	// add default values
 	applyGitDefaults(newConfig)
@@ -68,18 +92,20 @@ func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) {
 	// validate and apply defaults to new config before compare
 	if err := newConfig.ValidateAndApplyDefaults(); err != nil {
 		logger.Error("failed to validate new config", "err", err)
-		return
+		return false
 	}
 
 	newRepos, removedRepos := diffRepositories(repoPool, newConfig)
 	for _, repo := range removedRepos {
 		if err := repoPool.RemoveRepository(repo); err != nil {
 			logger.Error("failed to remove repository", "remote", repo, "err", err)
+			success = false
 		}
 	}
 	for _, repo := range newRepos {
 		if err := repoPool.AddRepository(repo); err != nil {
 			logger.Error("failed to add new repository", "remote", repo.Remote, "err", err)
+			success = false
 		}
 	}
 
@@ -87,6 +113,8 @@ func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) {
 	for _, newRepoConf := range newConfig.Repositories {
 		repo, err := repoPool.Repository(newRepoConf.Remote)
 		if err != nil {
+			logger.Error("unable to check worktree changes", "remote", newRepoConf.Remote, "err", err)
+			success = false
 			continue
 		}
 
@@ -96,14 +124,21 @@ func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) {
 		for _, wt := range removedWTs {
 			if err := repoPool.RemoveWorktreeLink(newRepoConf.Remote, wt); err != nil {
 				logger.Error("failed to remove worktree", "remote", newRepoConf.Remote, "link", wt, "err", err)
+				success = false
 			}
 		}
 		for _, wt := range newWTs {
 			if err := repoPool.AddWorktreeLink(newRepoConf.Remote, wt); err != nil {
 				logger.Error("failed to add worktree", "remote", newRepoConf.Remote, "link", wt.Link, "err", err)
+				success = false
 			}
 		}
 	}
+
+	// start mirror Loop on newly added repos
+	repoPool.StartLoop()
+
+	return success
 }
 
 func applyGitDefaults(mirrorConf *mirror.RepoPoolConfig) {

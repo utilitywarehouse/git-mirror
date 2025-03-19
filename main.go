@@ -90,6 +90,7 @@ func main() {
 	}
 
 	mirror.EnableMetrics("", prometheus.NewRegistry())
+	prometheus.MustRegister(configSuccess, configSuccessTime)
 
 	server := &http.Server{
 		Addr:              *flagHttpBind,
@@ -118,10 +119,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	onConfigChange := func(config *mirror.RepoPoolConfig) {
-		ensureConfig(repoPool, config)
-		// start mirror Loop on newly added repos
-		repoPool.StartLoop()
+	onConfigChange := func(config *mirror.RepoPoolConfig) bool {
+		return ensureConfig(repoPool, config)
 	}
 
 	// Start watching the config file
