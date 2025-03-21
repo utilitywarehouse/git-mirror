@@ -179,6 +179,17 @@ func (rp *RepoPool) RepositoriesRemote() []string {
 	return urls
 }
 
+func (rp *RepoPool) RepositoriesDirPath() []string {
+	rp.lock.RLock()
+	defer rp.lock.RUnlock()
+
+	var paths []string
+	for _, repo := range rp.repos {
+		paths = append(paths, repo.dir)
+	}
+	return paths
+}
+
 // AddWorktreeLink is wrapper around repositories AddWorktreeLink method
 func (rp *RepoPool) AddWorktreeLink(remote string, wt WorktreeConfig) error {
 	rp.lock.RLock()

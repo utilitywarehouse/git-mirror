@@ -120,8 +120,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	firstRun := true
 	onConfigChange := func(config *mirror.RepoPoolConfig) bool {
-		return ensureConfig(repoPool, config)
+		ok := ensureConfig(repoPool, config)
+
+		if firstRun {
+			cleanupOrphanedRepos(config, repoPool)
+			firstRun = false
+		}
+
+		return ok
 	}
 
 	// Start watching the config file
