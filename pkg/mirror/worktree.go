@@ -18,9 +18,12 @@ type WorkTreeLink struct {
 }
 
 func (wt *WorkTreeLink) Equals(wtc WorktreeConfig) bool {
+	sortedConfigPaths := slices.Clone(wtc.Pathspecs)
+	slices.Sort(sortedConfigPaths)
+
 	return wt.link == wtc.Link &&
 		wt.ref == wtc.Ref &&
-		slices.Compare(wt.pathspecs, wtc.Pathspecs) == 0
+		slices.Compare(wt.pathspecs, sortedConfigPaths) == 0
 }
 
 // worktreeDirName will generate worktree name for specific worktree link

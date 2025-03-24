@@ -140,7 +140,7 @@ func TestRepo_AddWorktreeLink(t *testing.T) {
 		wantErr bool
 	}{
 		{"all-valid", args{wtc: WorktreeConfig{"link", "master", []string{}}}, false},
-		{"all-valid-with-path", args{wtc: WorktreeConfig{"link2", "other-branch", []string{"path"}}}, false},
+		{"all-valid-with-paths", args{wtc: WorktreeConfig{"link2", "other-branch", []string{"path1", "path2/**/*.yaml", "*.c"}}}, false},
 		{"duplicate-link", args{wtc: WorktreeConfig{"link", "master", []string{}}}, true},
 		{"no-link", args{wtc: WorktreeConfig{"", "master", []string{}}}, true},
 		{"no-ref", args{wtc: WorktreeConfig{"link3", "", []string{}}}, false},
@@ -156,7 +156,7 @@ func TestRepo_AddWorktreeLink(t *testing.T) {
 	// compare all worktree links
 	want := map[string]*WorkTreeLink{
 		"link":      {link: "link", linkAbs: "/tmp/root/link", ref: "master", pathspecs: []string{}},
-		"link2":     {link: "link2", linkAbs: "/tmp/root/link2", ref: "other-branch", pathspecs: []string{"path"}},
+		"link2":     {link: "link2", linkAbs: "/tmp/root/link2", ref: "other-branch", pathspecs: []string{"*.c", "path1", "path2/**/*.yaml"}},
 		"link3":     {link: "link3", linkAbs: "/tmp/root/link3", ref: "HEAD", pathspecs: []string{}},
 		"/tmp/link": {link: "/tmp/link", linkAbs: "/tmp/link", ref: "tag", pathspecs: []string{}},
 	}

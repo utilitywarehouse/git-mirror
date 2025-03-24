@@ -109,12 +109,12 @@ func Test_diffWorktrees(t *testing.T) {
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
 				Worktrees: []mirror.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
-					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path"}},
+					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 				},
 			},
 			wantNewWTCs: []mirror.WorktreeConfig{
 				{Link: "link", Ref: "master"},
-				{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path"}},
+				{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 			},
 			wantRemovedWTs: nil,
 		},
@@ -125,7 +125,8 @@ func Test_diffWorktrees(t *testing.T) {
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
 				Worktrees: []mirror.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
-					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path"}},
+					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
+					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path"}},
 				},
 			},
 			newRepoConf: &mirror.RepositoryConfig{
@@ -133,14 +134,37 @@ func Test_diffWorktrees(t *testing.T) {
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
 				Worktrees: []mirror.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: []string{"new-path"}},
-					{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path"}},
+					{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
+					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path", "new-path"}},
 				},
 			},
 			wantNewWTCs: []mirror.WorktreeConfig{
 				{Link: "link", Ref: "master", Pathspecs: []string{"new-path"}},
-				{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path"}},
+				{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
+				{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path", "new-path"}},
 			},
-			wantRemovedWTs: []string{"link", "link2"},
+			wantRemovedWTs: []string{"link", "link2", "link3"},
+		},
+		{
+			name: "rearrange-path",
+			initialRepoConf: &mirror.RepositoryConfig{
+				Remote: "user@host.xz:path/to/repo1.git",
+				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
+				Worktrees: []mirror.WorktreeConfig{
+					{Link: "link", Ref: "master", Pathspecs: []string{"a", "b/**/c"}},
+					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
+				},
+			},
+			newRepoConf: &mirror.RepositoryConfig{
+				Remote: "user@host.xz:path/to/repo1.git",
+				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
+				Worktrees: []mirror.WorktreeConfig{
+					{Link: "link", Ref: "master", Pathspecs: []string{"b/**/c", "a"}},
+					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "*.c", "path2/**/*.yaml"}},
+				},
+			},
+			wantNewWTCs:    nil,
+			wantRemovedWTs: nil,
 		},
 		{
 			name: "add_new_link",
@@ -149,7 +173,7 @@ func Test_diffWorktrees(t *testing.T) {
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
 				Worktrees: []mirror.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
-					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path"}},
+					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 				},
 			},
 			newRepoConf: &mirror.RepositoryConfig{
@@ -157,11 +181,11 @@ func Test_diffWorktrees(t *testing.T) {
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
 				Worktrees: []mirror.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
-					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path"}},
+					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 				},
 			},
 			wantNewWTCs: []mirror.WorktreeConfig{
-				{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path"}},
+				{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 			},
 			wantRemovedWTs: []string{"link2"},
 		},
