@@ -60,12 +60,15 @@ func NewRepoPool(ctx context.Context, conf RepoPoolConfig, log *slog.Logger, com
 		// signal repository
 		repoCancel()
 
+		rp.lock.RLock()
+		defer rp.lock.RUnlock()
+
 		for {
 			time.Sleep(time.Second)
 			// check if any repo mirror is still running
 			var running bool
 			for _, repo := range rp.repos {
-				if repo.running {
+				if repo.IsRunning() {
 					running = true
 					break
 				}
@@ -143,7 +146,7 @@ func (rp *RepoPool) StartLoop() {
 	defer rp.lock.RUnlock()
 
 	for _, repo := range rp.repos {
-		if !repo.running {
+		if !repo.IsRunning() {
 			go repo.StartLoop(rp.ctx)
 			continue
 		}
@@ -192,9 +195,6 @@ func (rp *RepoPool) RepositoriesDirPath() []string {
 
 // AddWorktreeLink is wrapper around repositories AddWorktreeLink method
 func (rp *RepoPool) AddWorktreeLink(remote string, wt WorktreeConfig) error {
-	rp.lock.RLock()
-	defer rp.lock.RUnlock()
-
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return err
@@ -202,11 +202,18 @@ func (rp *RepoPool) AddWorktreeLink(remote string, wt WorktreeConfig) error {
 	if err := rp.validateLinkPath(repo, wt.Link); err != nil {
 		return err
 	}
+
+	rp.lock.Lock()
+	defer rp.lock.Unlock()
+
 	return repo.AddWorktreeLink(wt)
 }
 
 func (rp *RepoPool) validateLinkPath(repo *Repository, link string) error {
 	newAbsLink := absLink(repo.root, link)
+
+	rp.lock.RLock()
+	defer rp.lock.RUnlock()
 
 	for _, r := range rp.repos {
 		for _, wl := range r.WorktreeLinks() {

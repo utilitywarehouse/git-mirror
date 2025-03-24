@@ -1293,7 +1293,7 @@ func Test_mirror_loop(t *testing.T) {
 	go repo.StartLoop(txtCtx)
 
 	time.Sleep(testInterval)
-	if repo.running != true {
+	if repo.IsRunning() != true {
 		t.Errorf("repo running state is still false after starting mirror loop")
 	}
 
@@ -1326,7 +1326,7 @@ func Test_mirror_loop(t *testing.T) {
 
 	// STOP mirror loop
 	repo.StopLoop()
-	if repo.running {
+	if repo.IsRunning() {
 		t.Errorf("repo still running after calling StopLoop")
 	}
 }
