@@ -78,13 +78,16 @@ repositories:
         # ref represents the git reference of the worktree branch, tags or hash
         # are supported. default is HEAD
 
-        pathspec: example
-        # pathspec of the dirs to checkout if required, optional if omitted
-        # whole repo will be checked out
+        pathspecs: 
+          - path
+          - path2/*.yaml
+        # pathspecs is the pattern used to checkout paths in Git commands.
+        # its optional, if omitted whole repo will be checked out
 ```
+For more details about `pathspecs`, see [git glossary](https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec)
 
 App can load changes in config without restart. At repository level only 
 adding and removing repository is supported. changes in interval, timeout 
 and auth will require an app restart. 
 At worktree level apart from adding or removing, changes in existing worktree's
-link, ref and pathspec is supported.
+link, ref and pathspecs is supported.

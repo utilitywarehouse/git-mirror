@@ -74,8 +74,8 @@ type WorktreeConfig struct {
 	// are supported. default is HEAD
 	Ref string `yaml:"ref"`
 
-	// Pathspec of the dirs to checkout if required
-	Pathspec string `yaml:"pathspec"`
+	// Pathspecs of the dirs to checkout if required
+	Pathspecs []string `yaml:"pathspecs"`
 }
 
 // Auth represents authentication config of the repository
