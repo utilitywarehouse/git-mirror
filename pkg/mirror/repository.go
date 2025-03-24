@@ -148,12 +148,15 @@ func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
 	}
 
 	wt := &WorkTreeLink{
-		link:     wtc.Link,
-		linkAbs:  linkAbs,
-		ref:      wtc.Ref,
-		pathspec: wtc.Pathspec,
-		log:      r.log.With("worktree", wtc.Link),
+		link:      wtc.Link,
+		linkAbs:   linkAbs,
+		ref:       wtc.Ref,
+		pathspecs: wtc.Pathspecs,
+		log:       r.log.With("worktree", wtc.Link),
 	}
+
+	// pathspecs must be sorted for for worktree equality checks
+	slices.Sort(wt.pathspecs)
 
 	r.workTreeLinks[wtc.Link] = wt
 	return nil
@@ -363,10 +366,8 @@ func (r *Repository) cloneByRef(ctx context.Context, dst, ref, pathspec string, 
 
 	args := []string{"reset", "--hard", ref}
 	// git reset --hard <ref>
-	if out, err := runGitCommand(ctx, r.log, nil, dst, args...); err != nil {
+	if _, err := runGitCommand(ctx, r.log, nil, dst, args...); err != nil {
 		return "", err
-	} else {
-		fmt.Println(out)
 	}
 
 	// get the hash of the repos HEAD
@@ -708,7 +709,7 @@ func (r *Repository) hash(ctx context.Context, ref, path string) (string, error)
 // it will remove worktree if tracking ref is removed from the remote
 func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) error {
 	// get remote hash from mirrored repo for the worktree link
-	remoteHash, err := r.hash(ctx, wl.ref, wl.pathspec)
+	remoteHash, err := r.hash(ctx, wl.ref, "")
 	if err != nil {
 		return fmt.Errorf("unable to get hash for worktree:%s err:%w", wl.link, err)
 	}
@@ -798,10 +799,11 @@ func (r *Repository) createWorktree(ctx context.Context, wl *WorkTreeLink, hash 
 
 	// only checkout required path if specified
 	args := []string{"checkout", hash}
-	if wl.pathspec != "" {
-		args = append(args, "--", wl.pathspec)
+	if len(wl.pathspecs) > 0 {
+		args = append(args, "--")
+		args = append(args, wl.pathspecs...)
 	}
-	// git checkout <hash> -- <pathspec>
+	// git checkout <hash> -- <pathspec...>
 	if _, err := runGitCommand(ctx, wl.log, nil, wtPath, args...); err != nil {
 		return "", err
 	}

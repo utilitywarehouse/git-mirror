@@ -5,21 +5,22 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 type WorkTreeLink struct {
-	link     string // link name as its specified in config, might not be unique only use it for logging
-	linkAbs  string // the path at which to create a symlink to the worktree dir
-	ref      string // the ref of the worktree
-	pathspec string // pathspec of the dirs to checkout
-	log      *slog.Logger
+	link      string   // link name as its specified in config, might not be unique only use it for logging
+	linkAbs   string   // the path at which to create a symlink to the worktree dir
+	ref       string   // the ref of the worktree
+	pathspecs []string // pathspecs of the paths to checkout
+	log       *slog.Logger
 }
 
 func (wt *WorkTreeLink) Equals(wtc WorktreeConfig) bool {
 	return wt.link == wtc.Link &&
-		wt.pathspec == wtc.Pathspec &&
-		wt.ref == wtc.Ref
+		wt.ref == wtc.Ref &&
+		slices.Compare(wt.pathspecs, wtc.Pathspecs) == 0
 }
 
 // worktreeDirName will generate worktree name for specific worktree link
