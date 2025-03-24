@@ -83,6 +83,8 @@ func loadConfig(path string, lastModTime time.Time, onChange func(*mirror.RepoPo
 	return modTime, onChange(newConfig)
 }
 
+// ensureConfig will do the diff between current repoPool state and new config
+// and based on that diff it will add/remove repositories and worktrees
 func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) bool {
 	success := true
 
@@ -180,6 +182,8 @@ func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 	return conf, nil
 }
 
+// diffRepositories will do the diff between current state and new config and
+// return new repositories config and list of remote url which are not found in config
 func diffRepositories(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) (
 	newRepos []mirror.RepositoryConfig,
 	removedRepos []string,
@@ -206,6 +210,8 @@ func diffRepositories(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfi
 	return
 }
 
+// diffWorktrees will do the diff between current repo's worktree state and new worktree config
+// it will return new worktree configs and link names of the link not found in new config
 func diffWorktrees(repo *mirror.Repository, newRepoConf *mirror.RepositoryConfig) (
 	newWTCs []mirror.WorktreeConfig,
 	removedWTs []string,

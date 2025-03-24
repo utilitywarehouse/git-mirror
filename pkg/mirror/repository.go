@@ -165,6 +165,7 @@ func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
 	return nil
 }
 
+// WorktreeLinks returns current clone of worktree maps
 func (r *Repository) WorktreeLinks() map[string]*WorkTreeLink {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -394,7 +395,7 @@ func (r *Repository) cloneByRef(ctx context.Context, dst, ref, pathspec string, 
 	return hash, nil
 }
 
-// returns if repositories mirror loop is running or not
+// IsRunning returns if repositories mirror loop is running or not
 func (r *Repository) IsRunning() bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -498,7 +499,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 }
 
 // RemoveWorktreeLink removes workTree link from the mirror repository.
-// it will remove published link as well even if it failed to remove worktree
+// it will remove published link as well even (if it failed to remove worktree)
 func (r *Repository) RemoveWorktreeLink(link string) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()

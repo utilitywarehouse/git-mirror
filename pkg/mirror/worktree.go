@@ -17,6 +17,9 @@ type WorkTreeLink struct {
 	log       *slog.Logger
 }
 
+// Equals returns if given worktree and its config is equal
+// they are considered equal only if link, ref and pathspecs are matching.
+// order of pothspecs is ignored
 func (wt *WorkTreeLink) Equals(wtc WorktreeConfig) bool {
 	sortedConfigPaths := slices.Clone(wtc.Pathspecs)
 	slices.Sort(sortedConfigPaths)

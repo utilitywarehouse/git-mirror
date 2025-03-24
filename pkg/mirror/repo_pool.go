@@ -171,6 +171,7 @@ func (rp *RepoPool) Repository(remote string) (*Repository, error) {
 	return nil, ErrNotExist
 }
 
+// RepositoriesRemote returns remote URLs of all the repositories
 func (rp *RepoPool) RepositoriesRemote() []string {
 	rp.lock.RLock()
 	defer rp.lock.RUnlock()
@@ -182,6 +183,7 @@ func (rp *RepoPool) RepositoriesRemote() []string {
 	return urls
 }
 
+// RepositoriesDirPath returns local paths of all the mirrored repositories
 func (rp *RepoPool) RepositoriesDirPath() []string {
 	rp.lock.RLock()
 	defer rp.lock.RUnlock()
