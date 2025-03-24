@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
-func Test_mirror_detect_race(t *testing.T) {
+func Test_mirror_detect_race_clone(t *testing.T) {
 	testTmpDir := mustTmpDir(t)
 	defer os.RemoveAll(testTmpDir)
 
@@ -105,4 +106,177 @@ func Test_mirror_detect_race(t *testing.T) {
 		wg.Wait()
 	})
 
+}
+
+func Test_mirror_detect_race_repo_pool(t *testing.T) {
+	testTmpDir := mustTmpDir(t)
+	defer os.RemoveAll(testTmpDir)
+
+	tempClone := mustTmpDir(t)
+	defer os.RemoveAll(tempClone)
+
+	upstream1 := filepath.Join(testTmpDir, testUpstreamRepo)
+	remote1 := "file://" + upstream1
+	upstream2 := filepath.Join(testTmpDir, "upstream2")
+	remote2 := "file://" + upstream2
+	root := filepath.Join(testTmpDir, testRoot)
+
+	fileU1SHA1 := mustInitRepo(t, upstream1, "file", t.Name()+"-u1-main-1")
+	fileU2SHA1 := mustInitRepo(t, upstream2, "file", t.Name()+"-u2-main-1")
+
+	rpc := RepoPoolConfig{
+		Defaults: DefaultConfig{
+			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
+		},
+	}
+
+	rp, err := NewRepoPool(t.Context(), rpc, testLog, testENVs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	t.Run("add-remove-repo-test", func(t *testing.T) {
+		wg := &sync.WaitGroup{}
+		wg.Add(1)
+
+		// add/remove 2 repositories
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				t.Log("adding remote1", "count", i)
+				readStopped := make(chan bool)
+				ctx, cancel := context.WithCancel(t.Context())
+
+				newConfig := RepoPoolConfig{
+					Defaults: DefaultConfig{
+						Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
+					},
+					Repositories: []RepositoryConfig{{
+						Remote:    remote1,
+						Worktrees: []WorktreeConfig{{Link: "link1"}}},
+					},
+				}
+				if err := newConfig.ValidateAndApplyDefaults(); err != nil {
+					t.Error("failed to validate new config", "err", err)
+					return
+				}
+
+				if err := rp.AddRepository(newConfig.Repositories[0]); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+
+				rp.StartLoop()
+
+				go func() {
+					for {
+						time.Sleep(1 * time.Second)
+						select {
+						case <-ctx.Done():
+							close(readStopped)
+							return
+						default:
+							if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
+								t.Error("unexpected err", "count", i, "err", err)
+							} else if got != fileU1SHA1 {
+								t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA1)
+							}
+						}
+
+					}
+				}()
+
+				if err := rp.AddWorktreeLink(remote1, WorktreeConfig{"link2", "", []string{}}); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+
+				time.Sleep(2 * time.Second)
+
+				if err := rp.RemoveWorktreeLink(remote1, "link1"); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+
+				cancel()
+				<-readStopped
+
+				if err := rp.RemoveRepository(remote1); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+			}
+
+		}()
+
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				t.Log("adding remote2", "count", i)
+				readStopped := make(chan bool)
+				ctx, cancel := context.WithCancel(t.Context())
+
+				newConfig := RepoPoolConfig{
+					Defaults: DefaultConfig{
+						Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
+					},
+					Repositories: []RepositoryConfig{{Remote: remote2,
+						Worktrees: []WorktreeConfig{{Link: "link3"}}},
+					},
+				}
+				if err := newConfig.ValidateAndApplyDefaults(); err != nil {
+					t.Error("failed to validate new config", "err", err)
+					return
+				}
+
+				if err := rp.AddRepository(newConfig.Repositories[0]); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+
+				rp.StartLoop()
+
+				// start loop to trigger read on repo pool
+				go func() {
+					for {
+						time.Sleep(1 * time.Second)
+						select {
+						case <-ctx.Done():
+							close(readStopped)
+							return
+						default:
+							if got, err := rp.Hash(txtCtx, remote2, "HEAD", ""); err != nil {
+								t.Error("unexpected err", "count", i, "err", err)
+							} else if got != fileU2SHA1 {
+								t.Errorf("remote2 hash mismatch got:%s want:%s", got, fileU2SHA1)
+							}
+						}
+					}
+				}()
+
+				if err := rp.AddWorktreeLink(remote2, WorktreeConfig{"link4", "", []string{}}); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+
+				time.Sleep(2 * time.Second)
+
+				if err := rp.RemoveWorktreeLink(remote2, "link3"); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+
+				cancel()
+
+				<-readStopped
+
+				if err := rp.RemoveRepository(remote2); err != nil {
+					t.Error("unexpected err", "err", err)
+					return
+				}
+			}
+		}()
+
+		wg.Wait()
+	})
 }

@@ -133,6 +133,9 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 
 // AddWorktreeLink adds workTree link to the mirror repository.
 func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
 	if wtc.Link == "" {
 		return fmt.Errorf("symlink path cannot be empty")
 	}
@@ -162,6 +165,7 @@ func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
 	return nil
 }
 
+// WorktreeLinks returns current clone of worktree maps
 func (r *Repository) WorktreeLinks() map[string]*WorkTreeLink {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
@@ -391,17 +395,32 @@ func (r *Repository) cloneByRef(ctx context.Context, dst, ref, pathspec string, 
 	return hash, nil
 }
 
+// IsRunning returns if repositories mirror loop is running or not
+func (r *Repository) IsRunning() bool {
+	r.lock.RLock()
+	defer r.lock.RUnlock()
+
+	return r.running
+}
+
 // StartLoop mirrors repository periodically based on repo's mirror interval
 func (r *Repository) StartLoop(ctx context.Context) {
-	if r.running {
+	if r.IsRunning() {
 		r.log.Error("mirror loop has already been started")
 		return
 	}
+
+	r.lock.Lock()
 	r.running = true
+	r.lock.Unlock()
+
 	r.log.Info("started repository mirror loop", "interval", r.interval)
 
 	defer func() {
+		r.lock.Lock()
 		r.running = false
+		r.lock.Unlock()
+
 		close(r.stopped)
 	}()
 
@@ -480,7 +499,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 }
 
 // RemoveWorktreeLink removes workTree link from the mirror repository.
-// it will remove published link as well even if it failed to remove worktree
+// it will remove published link as well even (if it failed to remove worktree)
 func (r *Repository) RemoveWorktreeLink(link string) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
