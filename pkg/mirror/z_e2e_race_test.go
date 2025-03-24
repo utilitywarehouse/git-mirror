@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func Test_mirror_detect_race(t *testing.T) {
+func Test_mirror_detect_race_clone(t *testing.T) {
 	testTmpDir := mustTmpDir(t)
 	defer os.RemoveAll(testTmpDir)
 
