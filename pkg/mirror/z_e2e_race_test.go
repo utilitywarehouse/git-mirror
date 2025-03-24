@@ -4,7 +4,6 @@ package mirror
 
 import (
 	"context"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -31,7 +30,7 @@ func Test_mirror_detect_race(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, ""}); err != nil {
+	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -51,7 +50,7 @@ func Test_mirror_detect_race(t *testing.T) {
 	t.Log("TEST-2: forward HEAD")
 	fileSHA2 := mustCommit(t, upstream, "file", testName+"-2")
 
-	t.Run("test-1", func(t *testing.T) {
+	t.Run("clone-test", func(t *testing.T) {
 		wg := &sync.WaitGroup{}
 		// all following assertions will always be true
 		// this test is about testing deadlocks and detecting race conditions
@@ -60,7 +59,8 @@ func Test_mirror_detect_race(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				if err := repo.Mirror(ctx); err != nil {
-					log.Fatalf("unable to mirror error: %v", err)
+					t.Error("unable to mirror", "err", err)
+					os.Exit(1)
 				}
 
 				assertLinkedFile(t, root, link1, "file", testName+"-2")
@@ -81,7 +81,8 @@ func Test_mirror_detect_race(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				if err := repo.Mirror(ctx); err != nil {
-					log.Fatalf("unable to mirror error: %v", err)
+					t.Error("unable to mirror error", "err", err)
+					os.Exit(1)
 				}
 			}()
 
