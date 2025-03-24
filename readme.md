@@ -55,10 +55,10 @@ defaults:
     ssh_key_path: /etc/git-secret/ssh
     ssh_known_hosts_path: /etc/git-secret/known_hosts
 repositories:
-  - remote: https://github.com/utilitywarehouse/git-mirror # required
     # remote is the git URL of the remote repository to mirror.
     # supported urls are 'git@host.xz:org/repo.git','ssh://git@host.xz/org/repo.git'
     # or 'https://host.xz/org/repo.git'. '.git' suffix is optional
+  - remote: https://github.com/utilitywarehouse/git-mirror # required
 
     # following fields are optional.
     # if these fields are not specified values from defaults section will be used
@@ -70,19 +70,19 @@ repositories:
       ssh_key_path: /some/other/location
       ssh_known_hosts_path: /some/other/location
     worktrees:
-      - link: alerts # required
         # link is the path at which to create a symlink to the worktree dir
         # if path is not absolute it will be created under repository root
+      - link: alerts # required
 
-        ref: main
         # ref represents the git reference of the worktree branch, tags or hash
         # are supported. default is HEAD
+        ref: main
 
+        # pathspecs is the pattern used to checkout paths in Git commands.
+        # its optional, if omitted whole repo will be checked out
         pathspecs: 
           - path
           - path2/*.yaml
-        # pathspecs is the pattern used to checkout paths in Git commands.
-        # its optional, if omitted whole repo will be checked out
 ```
 For more details about `pathspecs`, see [git glossary](https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec)
 
