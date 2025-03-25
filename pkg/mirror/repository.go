@@ -105,7 +105,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 	if !strings.HasSuffix(repoDir, ".git") {
 		repoDir += ".git"
 	}
-	repoDir = filepath.Join(repoConf.Root, repoDir)
+	repoDir = filepath.Join(DefaultRepoDir(repoConf.Root), repoDir)
 
 	repo := &Repository{
 		gitURL:        gURL,

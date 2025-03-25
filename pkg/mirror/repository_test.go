@@ -37,7 +37,7 @@ func TestNewRepo(t *testing.T) {
 				gitURL:        &giturl.URL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 				remote:        "user@host.xz:path/to/repo.git",
 				root:          "/tmp",
-				dir:           "/tmp/repo.git",
+				dir:           "/tmp/repo-mirrors/repo.git",
 				gitGC:         "always",
 				interval:      10 * time.Second,
 				auth:          &Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "path/to/host"},
