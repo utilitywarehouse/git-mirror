@@ -26,8 +26,9 @@ func cleanupOrphanedRepos(config *mirror.RepoPoolConfig, repoPool *mirror.RepoPo
 	}
 
 	repoDirs := repoPool.RepositoriesDirPath()
+	defaultRepoDirRoot := mirror.DefaultRepoDir(config.Defaults.Root)
 
-	entries, err := os.ReadDir(config.Defaults.Root)
+	entries, err := os.ReadDir(defaultRepoDirRoot)
 	if err != nil {
 		logger.Error("unable to read root dir for clean up", "err", err)
 		return
@@ -38,7 +39,7 @@ func cleanupOrphanedRepos(config *mirror.RepoPoolConfig, repoPool *mirror.RepoPo
 			continue
 		}
 
-		fullPath := filepath.Join(config.Defaults.Root, entry.Name())
+		fullPath := filepath.Join(defaultRepoDirRoot, entry.Name())
 
 		if slices.Contains(repoDirs, fullPath) {
 			continue

@@ -125,6 +125,11 @@ func (rpc *RepoPoolConfig) ValidateDefaults() error {
 	return nil
 }
 
+// DefaultRepoDir returns path of dir where all repositories mirrors are cloned
+func DefaultRepoDir(root string) string {
+	return filepath.Join(root, "repo-mirrors")
+}
+
 // ApplyDefaults will add  given default config to repository config if where needed
 func (rpc *RepoPoolConfig) ApplyDefaults() {
 	for i := range rpc.Repositories {
