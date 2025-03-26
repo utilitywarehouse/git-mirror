@@ -10,6 +10,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -81,14 +82,25 @@ func main() {
 	flagConfig := flag.String("config", envString("GIT_MIRROR_CONFIG", "/etc/git-mirror/config.yaml"), "Absolute path to the config file")
 	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
 	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":9001"), "The address the web server binds to")
+	flagVersion := flag.Bool("version", false, "git-mirror version")
 
 	flag.Usage = usage
 	flag.Parse()
+
+	info, _ := debug.ReadBuildInfo()
+
+	if *flagVersion || (flag.NArg() == 1 && flag.Arg(0) == "version") {
+		fmt.Printf("version=%s go=%s\n", info.Main.Version, info.GoVersion)
+		return
+	}
 
 	// set log level according to argument
 	if v, ok := levelStrings[strings.ToLower(*flagLogLevel)]; ok {
 		loggerLevel.Set(v)
 	}
+
+	logger.Info("version", "app", info.Main.Version, "go", info.GoVersion)
+	logger.Info("config", "path", *flagConfig, "watch", *flagWatchConfig)
 
 	mirror.EnableMetrics("", prometheus.NewRegistry())
 	prometheus.MustRegister(configSuccess, configSuccessTime)
@@ -136,6 +148,7 @@ func main() {
 	go WatchConfig(ctx, *flagConfig, *flagWatchConfig, 10*time.Second, onConfigChange)
 
 	go func() {
+		logger.Info("starting web server", "add", *flagHttpBind)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("HTTP server terminated", "err", err)
 		}
