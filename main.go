@@ -71,6 +71,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\t-config value             (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]\n")
 	fmt.Fprintf(os.Stderr, "\t-watch-config value       (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
 	fmt.Fprintf(os.Stderr, "\t-http-bind-address value  (default: ':9001') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
+	fmt.Fprintf(os.Stderr, "\t-one-time                 (default: 'false') Exit after first mirror. [$GIT_MIRROR_ONE_TIME]\n")
 
 	os.Exit(2)
 }
@@ -82,6 +83,7 @@ func main() {
 	flagConfig := flag.String("config", envString("GIT_MIRROR_CONFIG", "/etc/git-mirror/config.yaml"), "Absolute path to the config file")
 	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
 	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":9001"), "The address the web server binds to")
+	flagOneTime := flag.Bool("one-time", envBool("GIT_MIRROR_ONE_TIME", false), "Exit after first mirror")
 	flagVersion := flag.Bool("version", false, "git-mirror version")
 
 	flag.Usage = usage
@@ -122,26 +124,43 @@ func main() {
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 	server.Handler = mux
 
+	conf, err := parseConfigFile(*flagConfig)
+	if err != nil {
+		logger.Error("unable to parse git-mirror config file", "err", err)
+		os.Exit(1)
+	}
+
+	applyGitDefaults(conf)
+
 	// path to resolve git
 	gitENV := []string{fmt.Sprintf("PATH=%s", os.Getenv("PATH"))}
 
-	// create empty repo pool which will be populated by watchConfig
-	repoPool, err := mirror.NewRepoPool(ctx, mirror.RepoPoolConfig{}, logger.With("logger", "git-mirror"), gitENV)
+	repoPool, err := mirror.NewRepoPool(ctx, *conf, logger.With("logger", "git-mirror"), gitENV)
 	if err != nil {
 		logger.Error("could not create git mirror pool", "err", err)
 		os.Exit(1)
 	}
 
-	firstRun := true
+	// perform 1st mirror to ensure all repositories before starting controller
+	// initial mirror might take longer
+	timeout := 2 * conf.Defaults.MirrorTimeout
+	if err := repoPool.MirrorAll(ctx, timeout); err != nil {
+		logger.Error("could not perform initial repositories mirror", "err", err)
+		os.Exit(1)
+	}
+
+	if *flagOneTime {
+		logger.Info("existing after first mirror")
+		os.Exit(0)
+	}
+
+	// start mirror Loop
+	repoPool.StartLoop()
+
+	cleanupOrphanedRepos(conf, repoPool)
+
 	onConfigChange := func(config *mirror.RepoPoolConfig) bool {
-		ok := ensureConfig(repoPool, config)
-
-		if firstRun {
-			cleanupOrphanedRepos(config, repoPool)
-			firstRun = false
-		}
-
-		return ok
+		return ensureConfig(repoPool, config)
 	}
 
 	// Start watching the config file
