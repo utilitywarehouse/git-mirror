@@ -17,12 +17,14 @@ func TestRepoPoolConfig_ValidateDefaults(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty", args{dc: DefaultConfig{}}, false},
-		{"valid", args{dc: DefaultConfig{"/root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, false},
-		{"invalid_root", args{dc: DefaultConfig{"root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
-		{"invalid_interval", args{dc: DefaultConfig{"/root", time.Millisecond, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
-		{"invalid_timeout", args{dc: DefaultConfig{"/root", time.Second, time.Millisecond, "always", Auth{"/path/to/key", "/host"}}}, true},
-		{"valid_gc", args{dc: DefaultConfig{"/root", time.Second, 2 * time.Second, "", Auth{"/path/to/key", "/host"}}}, false},
-		{"invalid_gc", args{dc: DefaultConfig{"/root", time.Second, 2 * time.Second, "blah", Auth{"/path/to/key", "/host"}}}, true},
+		{"valid", args{dc: DefaultConfig{"/root", "", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, false},
+		{"valid_with_link_root", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, false},
+		{"invalid_root", args{dc: DefaultConfig{"root", "", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
+		{"invalid_link_root", args{dc: DefaultConfig{"/root", "link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
+		{"invalid_interval", args{dc: DefaultConfig{"/root", "/link_root", time.Millisecond, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
+		{"invalid_timeout", args{dc: DefaultConfig{"/root", "/link_root", time.Second, time.Millisecond, "always", Auth{"/path/to/key", "/host"}}}, true},
+		{"valid_gc", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "", Auth{"/path/to/key", "/host"}}}, false},
+		{"invalid_gc", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "blah", Auth{"/path/to/key", "/host"}}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -48,7 +50,7 @@ func TestRepoPoolConfig_ApplyDefaults(t *testing.T) {
 		{"all_def",
 			RepoPoolConfig{
 				Defaults: DefaultConfig{
-					"/root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+					"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
 				},
 				Repositories: []RepositoryConfig{
 					{Remote: "user@host.xz:path/to/repo1.git"},
@@ -56,6 +58,7 @@ func TestRepoPoolConfig_ApplyDefaults(t *testing.T) {
 					{
 						Remote:        "user@host.xz:path/to/repo3.git",
 						Root:          "/another-root",
+						LinkRoot:      "/another-link-root",
 						Interval:      2 * time.Second,
 						MirrorTimeout: 4 * time.Second,
 						GitGC:         "off",
@@ -65,12 +68,13 @@ func TestRepoPoolConfig_ApplyDefaults(t *testing.T) {
 			},
 			RepoPoolConfig{
 				Defaults: DefaultConfig{
-					"/root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+					"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
 				},
 				Repositories: []RepositoryConfig{
 					{
 						Remote:        "user@host.xz:path/to/repo1.git",
 						Root:          "/root",
+						LinkRoot:      "/link_root",
 						Interval:      time.Second,
 						MirrorTimeout: 2 * time.Second,
 						GitGC:         "always",
@@ -79,6 +83,7 @@ func TestRepoPoolConfig_ApplyDefaults(t *testing.T) {
 					{
 						Remote:        "user@host.xz:path/to/repo2.git",
 						Root:          "/root",
+						LinkRoot:      "/link_root",
 						Interval:      time.Second,
 						MirrorTimeout: 2 * time.Second,
 						GitGC:         "always",
@@ -87,10 +92,36 @@ func TestRepoPoolConfig_ApplyDefaults(t *testing.T) {
 					{
 						Remote:        "user@host.xz:path/to/repo3.git",
 						Root:          "/another-root",
+						LinkRoot:      "/another-link-root",
 						Interval:      2 * time.Second,
 						MirrorTimeout: 4 * time.Second,
 						GitGC:         "off",
 						Auth:          Auth{SSHKeyPath: "/path/to/key"},
+					},
+				}},
+		},
+		{"no_link_root_def",
+			RepoPoolConfig{
+				Defaults: DefaultConfig{
+					"/root", "", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+				},
+				Repositories: []RepositoryConfig{
+					{Remote: "user@host.xz:path/to/repo1.git"},
+				},
+			},
+			RepoPoolConfig{
+				Defaults: DefaultConfig{
+					"/root", "/root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+				},
+				Repositories: []RepositoryConfig{
+					{
+						Remote:        "user@host.xz:path/to/repo1.git",
+						Root:          "/root",
+						LinkRoot:      "/root",
+						Interval:      time.Second,
+						MirrorTimeout: 2 * time.Second,
+						GitGC:         "always",
+						Auth:          Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"},
 					},
 				}},
 		},
@@ -126,6 +157,26 @@ func TestRepoPoolConfig_ValidateLinkPaths(t *testing.T) {
 					},
 					{
 						Root:      "/another-root",
+						LinkRoot:  "/another-link-root",
+						Worktrees: []WorktreeConfig{{Link: "link1"}},
+					},
+				},
+			},
+			false,
+		}, {
+			"valid_with_link_root",
+			RepoPoolConfig{
+				Defaults: DefaultConfig{LinkRoot: "/root"},
+				Repositories: []RepositoryConfig{
+					{
+						Worktrees: []WorktreeConfig{{Link: "link1"}, {Link: "link2"}},
+					},
+					{
+						Worktrees: []WorktreeConfig{{Link: "/diff-abs/link1"}, {Link: "link3"}},
+					},
+					{
+						Root:      "/another-root",
+						LinkRoot:  "/another-link-root",
 						Worktrees: []WorktreeConfig{{Link: "link1"}},
 					},
 				},
@@ -134,7 +185,7 @@ func TestRepoPoolConfig_ValidateLinkPaths(t *testing.T) {
 		}, {
 			"same-link-name-diff-repo",
 			RepoPoolConfig{
-				Defaults: DefaultConfig{Root: "/root"},
+				Defaults: DefaultConfig{LinkRoot: "/root"},
 				Repositories: []RepositoryConfig{
 					{
 						Worktrees: []WorktreeConfig{{Link: "link1"}, {Link: "link2"}},
@@ -163,7 +214,7 @@ func TestRepoPoolConfig_ValidateLinkPaths(t *testing.T) {
 		}, {
 			"same-link-name-same-repo",
 			RepoPoolConfig{
-				Defaults: DefaultConfig{Root: "/root"},
+				Defaults: DefaultConfig{LinkRoot: "/root"},
 				Repositories: []RepositoryConfig{
 					{
 						Worktrees: []WorktreeConfig{{Link: "link1"}, {Link: "link1"}},
@@ -174,7 +225,7 @@ func TestRepoPoolConfig_ValidateLinkPaths(t *testing.T) {
 		}, {
 			"same-link-with-abs",
 			RepoPoolConfig{
-				Defaults: DefaultConfig{Root: "/root"},
+				Defaults: DefaultConfig{LinkRoot: "/root"},
 				Repositories: []RepositoryConfig{
 					{
 						Worktrees: []WorktreeConfig{{Link: "link1"}},

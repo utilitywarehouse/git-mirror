@@ -21,6 +21,13 @@ type DefaultConfig struct {
 	// specified in repo config
 	Root string `yaml:"root"`
 
+	// LinkRoot is the absolute path to the dir which is the root for the worktree links
+	// if link is a relative path it will be relative to this dir
+	// if link is not specified it will be constructed from repo name and worktree ref
+	// and it will be placed in this dir
+	// if not specified it will be same as root
+	LinkRoot string `yaml:"link_root"`
+
 	// Interval is time duration for how long to wait between mirrors
 	Interval time.Duration `yaml:"interval"`
 
@@ -46,6 +53,13 @@ type RepositoryConfig struct {
 	// absolute path is not provided
 	Root string `yaml:"root"`
 
+	// LinkRoot is the absolute path to the dir which is the root for the worktree links
+	// if link is a relative path it will be relative to this dir
+	// if link is not specified it will be constructed from repo name and worktree ref
+	// and it will be placed in this dir
+	// if not specified it will be same as root
+	LinkRoot string `yaml:"link_root"`
+
 	// Interval is time duration for how long to wait between mirrors
 	Interval time.Duration `yaml:"interval"`
 
@@ -67,7 +81,9 @@ type RepositoryConfig struct {
 // Worktree represents maintained worktree on given link.
 type WorktreeConfig struct {
 	// Link is the path at which to create a symlink to the worktree dir
-	// if path is not absolute it will be created under repository root
+	// if path is not absolute it will be created under repository link_root
+	// if link is not specified it will be constructed from repo name and worktree ref
+	// and it will be placed in link_root dir
 	Link string `yaml:"link"`
 
 	// Ref represents the git reference of the worktree branch, tags or hash
@@ -96,6 +112,12 @@ func (rpc *RepoPoolConfig) ValidateDefaults() error {
 	if dc.Root != "" {
 		if !filepath.IsAbs(dc.Root) {
 			errs = append(errs, fmt.Errorf("repository root '%s' must be absolute", dc.Root))
+		}
+	}
+
+	if dc.LinkRoot != "" {
+		if !filepath.IsAbs(dc.LinkRoot) {
+			errs = append(errs, fmt.Errorf("repository link_root '%s' must be absolute", dc.Root))
 		}
 	}
 
@@ -132,10 +154,18 @@ func DefaultRepoDir(root string) string {
 
 // ApplyDefaults will add  given default config to repository config if where needed
 func (rpc *RepoPoolConfig) ApplyDefaults() {
+	if rpc.Defaults.LinkRoot == "" {
+		rpc.Defaults.LinkRoot = rpc.Defaults.Root
+	}
+
 	for i := range rpc.Repositories {
 		repo := &rpc.Repositories[i]
 		if repo.Root == "" {
 			repo.Root = rpc.Defaults.Root
+		}
+
+		if repo.LinkRoot == "" {
+			repo.LinkRoot = rpc.Defaults.LinkRoot
 		}
 
 		if repo.Interval == 0 {
@@ -170,7 +200,7 @@ func (rpc *RepoPoolConfig) ValidateLinkPaths() error {
 	// add defaults before checking abs link paths
 	for _, repo := range rpc.Repositories {
 		for _, l := range repo.Worktrees {
-			absL := absLink(repo.Root, l.Link)
+			absL := absLink(repo.LinkRoot, l.Link)
 			if ok := absLinks[absL]; ok {
 				errs = append(errs, fmt.Errorf("links with overlapping abs path found name:%s path:%s",
 					l.Link, absL))
