@@ -3,8 +3,15 @@ package mirror
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
+
+	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
 )
+
+var matchSpecialCharReg = regexp.MustCompile(`[\\:\/*?"<>|\s]`)
+var matchDupUnderscoreReg = regexp.MustCompile(`_+`)
 
 // RepoPoolConfig is the configuration to create repoPool
 type RepoPoolConfig struct {
@@ -103,8 +110,8 @@ type Auth struct {
 	SSHKnownHostsPath string `yaml:"ssh_known_hosts_path"`
 }
 
-// ValidateDefaults will verify default config
-func (rpc *RepoPoolConfig) ValidateDefaults() error {
+// validateDefaults will verify default config
+func (rpc *RepoPoolConfig) validateDefaults() error {
 	dc := rpc.Defaults
 
 	var errs []error
@@ -152,8 +159,8 @@ func DefaultRepoDir(root string) string {
 	return filepath.Join(root, "repo-mirrors")
 }
 
-// ApplyDefaults will add  given default config to repository config if where needed
-func (rpc *RepoPoolConfig) ApplyDefaults() {
+// applyDefaults will add  given default config to repository config if where needed
+func (rpc *RepoPoolConfig) applyDefaults() {
 	if rpc.Defaults.LinkRoot == "" {
 		rpc.Defaults.LinkRoot = rpc.Defaults.Root
 	}
@@ -186,16 +193,61 @@ func (rpc *RepoPoolConfig) ApplyDefaults() {
 	}
 }
 
+func normaliseReference(ref string) string {
+	ref = strings.TrimSpace(ref)
+	// remove special char not allowed in file name
+	ref = matchSpecialCharReg.ReplaceAllString(ref, "_")
+	ref = matchDupUnderscoreReg.ReplaceAllString(ref, "_")
+	return ref
+}
+
+func generateLink(remote, ref string) (string, error) {
+	gitURL, err := giturl.Parse(remote)
+	if err != nil {
+		return "", err
+	}
+	normalisedRef := normaliseReference(ref)
+
+	// reject ref with all special char and . and .. has special meaning
+	if normalisedRef == "_" ||
+		normalisedRef == "." || normalisedRef == ".." {
+		return "", fmt.Errorf("reference cant be normalised")
+	}
+
+	// if reference is an hash then shorter version can be used as link path
+	if IsFullCommitHash(normalisedRef) {
+		normalisedRef = normalisedRef[:7]
+	}
+
+	return filepath.Join(strings.TrimRight(gitURL.Repo, ".git"), normalisedRef), nil
+}
+
+// PopulateEmptyLinkPaths will try and generate missing link paths
+func (repo *RepositoryConfig) PopulateEmptyLinkPaths() error {
+	for i := range repo.Worktrees {
+		if repo.Worktrees[i].Link != "" {
+			continue
+		}
+		if repo.Worktrees[i].Ref == "" {
+			repo.Worktrees[i].Ref = "HEAD"
+		}
+		link, err := generateLink(repo.Remote, repo.Worktrees[i].Ref)
+		if err != nil {
+			return err
+		}
+		repo.Worktrees[i].Link = link
+	}
+	return nil
+}
+
 // It is possible that same root is used for multiple repositories
 // since Links are placed at the root, we need to make sure that all link's
 // name (path) are diff.
-// ValidateLinkPaths makes sures all link's absolute paths are different.
-func (rpc *RepoPoolConfig) ValidateLinkPaths() error {
+// validateLinkPaths makes sures all link's absolute paths are different.
+func (rpc *RepoPoolConfig) validateLinkPaths() error {
 	var errs []error
 
 	absLinks := make(map[string]bool)
-
-	rpc.ApplyDefaults()
 
 	// add defaults before checking abs link paths
 	for _, repo := range rpc.Repositories {
@@ -220,15 +272,22 @@ func (rpc *RepoPoolConfig) ValidateLinkPaths() error {
 
 // ValidateAndApplyDefaults will validate link paths and default and apply defaults
 func (conf *RepoPoolConfig) ValidateAndApplyDefaults() error {
-	if err := conf.ValidateDefaults(); err != nil {
+	if err := conf.validateDefaults(); err != nil {
 		return err
 	}
 
-	if err := conf.ValidateLinkPaths(); err != nil {
+	conf.applyDefaults()
+
+	for _, repo := range conf.Repositories {
+		if err := repo.PopulateEmptyLinkPaths(); err != nil {
+			return err
+		}
+	}
+
+	if err := conf.validateLinkPaths(); err != nil {
 		return err
 	}
 
-	conf.ApplyDefaults()
 	return nil
 }
 

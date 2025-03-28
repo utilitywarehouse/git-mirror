@@ -110,9 +110,11 @@ func Test_diffWorktrees(t *testing.T) {
 				Worktrees: []mirror.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
 					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
+					{Link: "", Ref: "master", Pathspecs: nil},
 				},
 			},
 			wantNewWTCs: []mirror.WorktreeConfig{
+				{Link: "", Ref: "master", Pathspecs: nil},
 				{Link: "link", Ref: "master"},
 				{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 			},
@@ -127,6 +129,7 @@ func Test_diffWorktrees(t *testing.T) {
 					{Link: "link", Ref: "master", Pathspecs: nil},
 					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path"}},
+					{Link: "", Ref: "master", Pathspecs: nil},
 				},
 			},
 			newRepoConf: &mirror.RepositoryConfig{
@@ -136,14 +139,16 @@ func Test_diffWorktrees(t *testing.T) {
 					{Link: "link", Ref: "master", Pathspecs: []string{"new-path"}},
 					{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path", "new-path"}},
+					{Link: "", Ref: "new-branch", Pathspecs: nil},
 				},
 			},
 			wantNewWTCs: []mirror.WorktreeConfig{
+				{Link: "", Ref: "new-branch", Pathspecs: nil},
 				{Link: "link", Ref: "master", Pathspecs: []string{"new-path"}},
 				{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 				{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path", "new-path"}},
 			},
-			wantRemovedWTs: []string{"link", "link2", "link3"},
+			wantRemovedWTs: []string{"link", "link2", "link3", "repo1/master"},
 		},
 		{
 			name: "rearrange-path",
@@ -182,9 +187,11 @@ func Test_diffWorktrees(t *testing.T) {
 				Worktrees: []mirror.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
 					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
+					{Link: "", Ref: "master", Pathspecs: nil},
 				},
 			},
 			wantNewWTCs: []mirror.WorktreeConfig{
+				{Ref: "master"},
 				{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 			},
 			wantRemovedWTs: []string{"link2"},
@@ -192,6 +199,10 @@ func Test_diffWorktrees(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+
+			if err := tt.initialRepoConf.PopulateEmptyLinkPaths(); err != nil {
+				t.Fatalf("failed to create repo error = %v", err)
+			}
 
 			repo, err := mirror.NewRepository(*tt.initialRepoConf, nil, slog.Default())
 			if err != nil {
