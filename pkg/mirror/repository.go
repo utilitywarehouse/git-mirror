@@ -54,6 +54,7 @@ type Repository struct {
 	gitURL        *giturl.URL              // parsed remote git URL
 	remote        string                   // remote repo to mirror
 	root          string                   // absolute path to the root where repo directory created
+	linkRoot      string                   // absolute path to the root where repo worktree links are published
 	dir           string                   // absolute path to the repo directory
 	interval      time.Duration            // how long to wait between mirrors
 	mirrorTimeout time.Duration            // the total time allowed for the mirror loop
@@ -86,6 +87,14 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 		return nil, fmt.Errorf("repository root '%s' must be absolute", repoConf.Root)
 	}
 
+	if repoConf.LinkRoot != "" && !filepath.IsAbs(repoConf.LinkRoot) {
+		return nil, fmt.Errorf("repository link root set but path is not absolute  '%s'", repoConf.Root)
+	}
+
+	if repoConf.LinkRoot == "" {
+		repoConf.LinkRoot = repoConf.Root
+	}
+
 	if repoConf.Interval < minAllowedInterval {
 		return nil, fmt.Errorf("provided interval between mirroring is too sort (%s), must be > %s", repoConf.Interval, minAllowedInterval)
 	}
@@ -111,6 +120,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 		gitURL:        gURL,
 		remote:        remoteURL,
 		root:          repoConf.Root,
+		linkRoot:      repoConf.LinkRoot,
 		dir:           repoDir,
 		interval:      repoConf.Interval,
 		mirrorTimeout: repoConf.MirrorTimeout,
@@ -144,7 +154,7 @@ func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
 		return fmt.Errorf("worktree with given link already exits link:%s ref:%s", v.linkAbs, v.ref)
 	}
 
-	linkAbs := absLink(r.root, wtc.Link)
+	linkAbs := absLink(r.linkRoot, wtc.Link)
 
 	if wtc.Ref == "" {
 		wtc.Ref = "HEAD"

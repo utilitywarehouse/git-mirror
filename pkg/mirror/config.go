@@ -3,8 +3,15 @@ package mirror
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
+
+	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
 )
+
+var matchSpecialCharReg = regexp.MustCompile(`[\\:\/*?"<>|\s]`)
+var matchDupUnderscoreReg = regexp.MustCompile(`_+`)
 
 // RepoPoolConfig is the configuration to create repoPool
 type RepoPoolConfig struct {
@@ -20,6 +27,13 @@ type DefaultConfig struct {
 	// will be created all repos worktree links will be created here if not
 	// specified in repo config
 	Root string `yaml:"root"`
+
+	// LinkRoot is the absolute path to the dir which is the root for the worktree links
+	// if link is a relative path it will be relative to this dir
+	// if link is not specified it will be constructed from repo name and worktree ref
+	// and it will be placed in this dir
+	// if not specified it will be same as root
+	LinkRoot string `yaml:"link_root"`
 
 	// Interval is time duration for how long to wait between mirrors
 	Interval time.Duration `yaml:"interval"`
@@ -46,6 +60,13 @@ type RepositoryConfig struct {
 	// absolute path is not provided
 	Root string `yaml:"root"`
 
+	// LinkRoot is the absolute path to the dir which is the root for the worktree links
+	// if link is a relative path it will be relative to this dir
+	// if link is not specified it will be constructed from repo name and worktree ref
+	// and it will be placed in this dir
+	// if not specified it will be same as root
+	LinkRoot string `yaml:"link_root"`
+
 	// Interval is time duration for how long to wait between mirrors
 	Interval time.Duration `yaml:"interval"`
 
@@ -67,7 +88,9 @@ type RepositoryConfig struct {
 // Worktree represents maintained worktree on given link.
 type WorktreeConfig struct {
 	// Link is the path at which to create a symlink to the worktree dir
-	// if path is not absolute it will be created under repository root
+	// if path is not absolute it will be created under repository link_root
+	// if link is not specified it will be constructed from repo name and worktree ref
+	// and it will be placed in link_root dir
 	Link string `yaml:"link"`
 
 	// Ref represents the git reference of the worktree branch, tags or hash
@@ -87,8 +110,8 @@ type Auth struct {
 	SSHKnownHostsPath string `yaml:"ssh_known_hosts_path"`
 }
 
-// ValidateDefaults will verify default config
-func (rpc *RepoPoolConfig) ValidateDefaults() error {
+// validateDefaults will verify default config
+func (rpc *RepoPoolConfig) validateDefaults() error {
 	dc := rpc.Defaults
 
 	var errs []error
@@ -96,6 +119,12 @@ func (rpc *RepoPoolConfig) ValidateDefaults() error {
 	if dc.Root != "" {
 		if !filepath.IsAbs(dc.Root) {
 			errs = append(errs, fmt.Errorf("repository root '%s' must be absolute", dc.Root))
+		}
+	}
+
+	if dc.LinkRoot != "" {
+		if !filepath.IsAbs(dc.LinkRoot) {
+			errs = append(errs, fmt.Errorf("repository link_root '%s' must be absolute", dc.Root))
 		}
 	}
 
@@ -130,12 +159,20 @@ func DefaultRepoDir(root string) string {
 	return filepath.Join(root, "repo-mirrors")
 }
 
-// ApplyDefaults will add  given default config to repository config if where needed
-func (rpc *RepoPoolConfig) ApplyDefaults() {
+// applyDefaults will add  given default config to repository config if where needed
+func (rpc *RepoPoolConfig) applyDefaults() {
+	if rpc.Defaults.LinkRoot == "" {
+		rpc.Defaults.LinkRoot = rpc.Defaults.Root
+	}
+
 	for i := range rpc.Repositories {
 		repo := &rpc.Repositories[i]
 		if repo.Root == "" {
 			repo.Root = rpc.Defaults.Root
+		}
+
+		if repo.LinkRoot == "" {
+			repo.LinkRoot = rpc.Defaults.LinkRoot
 		}
 
 		if repo.Interval == 0 {
@@ -156,21 +193,66 @@ func (rpc *RepoPoolConfig) ApplyDefaults() {
 	}
 }
 
+func normaliseReference(ref string) string {
+	ref = strings.TrimSpace(ref)
+	// remove special char not allowed in file name
+	ref = matchSpecialCharReg.ReplaceAllString(ref, "_")
+	ref = matchDupUnderscoreReg.ReplaceAllString(ref, "_")
+	return ref
+}
+
+func generateLink(remote, ref string) (string, error) {
+	gitURL, err := giturl.Parse(remote)
+	if err != nil {
+		return "", err
+	}
+	normalisedRef := normaliseReference(ref)
+
+	// reject ref with all special char and . and .. has special meaning
+	if normalisedRef == "_" ||
+		normalisedRef == "." || normalisedRef == ".." {
+		return "", fmt.Errorf("reference cant be normalised")
+	}
+
+	// if reference is an hash then shorter version can be used as link path
+	if IsFullCommitHash(normalisedRef) {
+		normalisedRef = normalisedRef[:7]
+	}
+
+	return filepath.Join(strings.TrimRight(gitURL.Repo, ".git"), normalisedRef), nil
+}
+
+// PopulateEmptyLinkPaths will try and generate missing link paths
+func (repo *RepositoryConfig) PopulateEmptyLinkPaths() error {
+	for i := range repo.Worktrees {
+		if repo.Worktrees[i].Link != "" {
+			continue
+		}
+		if repo.Worktrees[i].Ref == "" {
+			repo.Worktrees[i].Ref = "HEAD"
+		}
+		link, err := generateLink(repo.Remote, repo.Worktrees[i].Ref)
+		if err != nil {
+			return err
+		}
+		repo.Worktrees[i].Link = link
+	}
+	return nil
+}
+
 // It is possible that same root is used for multiple repositories
 // since Links are placed at the root, we need to make sure that all link's
 // name (path) are diff.
-// ValidateLinkPaths makes sures all link's absolute paths are different.
-func (rpc *RepoPoolConfig) ValidateLinkPaths() error {
+// validateLinkPaths makes sures all link's absolute paths are different.
+func (rpc *RepoPoolConfig) validateLinkPaths() error {
 	var errs []error
 
 	absLinks := make(map[string]bool)
 
-	rpc.ApplyDefaults()
-
 	// add defaults before checking abs link paths
 	for _, repo := range rpc.Repositories {
 		for _, l := range repo.Worktrees {
-			absL := absLink(repo.Root, l.Link)
+			absL := absLink(repo.LinkRoot, l.Link)
 			if ok := absLinks[absL]; ok {
 				errs = append(errs, fmt.Errorf("links with overlapping abs path found name:%s path:%s",
 					l.Link, absL))
@@ -190,15 +272,22 @@ func (rpc *RepoPoolConfig) ValidateLinkPaths() error {
 
 // ValidateAndApplyDefaults will validate link paths and default and apply defaults
 func (conf *RepoPoolConfig) ValidateAndApplyDefaults() error {
-	if err := conf.ValidateDefaults(); err != nil {
+	if err := conf.validateDefaults(); err != nil {
 		return err
 	}
 
-	if err := conf.ValidateLinkPaths(); err != nil {
+	conf.applyDefaults()
+
+	for _, repo := range conf.Repositories {
+		if err := repo.PopulateEmptyLinkPaths(); err != nil {
+			return err
+		}
+	}
+
+	if err := conf.validateLinkPaths(); err != nil {
 		return err
 	}
 
-	conf.ApplyDefaults()
 	return nil
 }
 

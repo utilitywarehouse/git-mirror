@@ -37,6 +37,7 @@ func TestNewRepo(t *testing.T) {
 				gitURL:        &giturl.URL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 				remote:        "user@host.xz:path/to/repo.git",
 				root:          "/tmp",
+				linkRoot:      "/tmp",
 				dir:           "/tmp/repo-mirrors/repo.git",
 				gitGC:         "always",
 				interval:      10 * time.Second,
@@ -122,6 +123,7 @@ func TestRepo_AddWorktreeLink(t *testing.T) {
 	r := &Repository{
 		gitURL:        &giturl.URL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 		root:          "/tmp/root",
+		linkRoot:      "/tmp/link-root",
 		interval:      10 * time.Second,
 		auth:          nil,
 		log:           slog.Default(),
@@ -155,9 +157,9 @@ func TestRepo_AddWorktreeLink(t *testing.T) {
 	}
 	// compare all worktree links
 	want := map[string]*WorkTreeLink{
-		"link":      {link: "link", linkAbs: "/tmp/root/link", ref: "master", pathspecs: []string{}},
-		"link2":     {link: "link2", linkAbs: "/tmp/root/link2", ref: "other-branch", pathspecs: []string{"*.c", "path1", "path2/**/*.yaml"}},
-		"link3":     {link: "link3", linkAbs: "/tmp/root/link3", ref: "HEAD", pathspecs: []string{}},
+		"link":      {link: "link", linkAbs: "/tmp/link-root/link", ref: "master", pathspecs: []string{}},
+		"link2":     {link: "link2", linkAbs: "/tmp/link-root/link2", ref: "other-branch", pathspecs: []string{"*.c", "path1", "path2/**/*.yaml"}},
+		"link3":     {link: "link3", linkAbs: "/tmp/link-root/link3", ref: "HEAD", pathspecs: []string{}},
 		"/tmp/link": {link: "/tmp/link", linkAbs: "/tmp/link", ref: "tag", pathspecs: []string{}},
 	}
 	if diff := cmp.Diff(want, r.workTreeLinks, cmpopts.IgnoreFields(WorkTreeLink{}, "log"), cmp.AllowUnexported(WorkTreeLink{})); diff != "" {
