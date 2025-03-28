@@ -39,6 +39,13 @@ defaults:
   # specified in repo config (default: '/tmp/git-mirror')
   root: /tmp/git-mirror
 
+  # link_root is the absolute path to the dir which is the root for the worktree links
+	# if link is a relative path it will be relative to link_root dir
+  # if link is not specified it will be constructed from repo name and worktree ref
+	# and it will be placed in this dir
+	# if not specified it will be same as root
+  link_root: /app/links
+  
   # interval is time duration for how long to wait between mirrors. (default: '30s')
   interval: 30s
 
@@ -63,6 +70,7 @@ repositories:
     # following fields are optional.
     # if these fields are not specified values from defaults section will be used
     root: /some/other/location
+    link_root: /some/path
     interval: 1m
     mirror_timeout: 5m
     git_gc: always
@@ -70,9 +78,11 @@ repositories:
       ssh_key_path: /some/other/location
       ssh_known_hosts_path: /some/other/location
     worktrees:
-        # link is the path at which to create a symlink to the worktree dir
-        # if path is not absolute it will be created under repository root
-      - link: alerts # required
+      # link is the path at which to create a symlink to the worktree dir
+      # if path is not absolute it will be created under repository link_root
+      # if link is not specified it will be constructed from repo name and worktree ref
+      # and it will be placed in link_root dir
+      - link: alerts
 
         # ref represents the git reference of the worktree branch, tags or hash
         # are supported. default is HEAD
