@@ -43,7 +43,7 @@ defaults:
   # if link is a relative path it will be relative to link_root dir
   # if link is not specified it will be constructed from repo name and worktree ref
   # and it will be placed in this dir
-  	# if not specified it will be same as root
+  # if not specified it will be same as root
   link_root: /app/links
   
   # interval is time duration for how long to wait between mirrors. (default: '30s')
