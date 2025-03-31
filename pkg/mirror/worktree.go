@@ -2,11 +2,11 @@ package mirror
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 type WorkTreeLink struct {
@@ -32,9 +32,11 @@ func (wt *WorkTreeLink) Equals(wtc WorktreeConfig) bool {
 // worktreeDirName will generate worktree name for specific worktree link
 // two worktree links can be on same ref but with diff pathspecs
 // hence we cant just use tree hash as path
+// 2 diff worktree links can have same basename hence also including hash of absolute link path
 func (w *WorkTreeLink) worktreeDirName(hash string) string {
-	parts := strings.Split(strings.Trim(w.linkAbs, "/"), "/")
-	return parts[len(parts)-1] + "-" + hash[:7]
+	linkHash := fmt.Sprintf("%x", sha256.Sum256([]byte(w.linkAbs)))
+	base := filepath.Base(w.linkAbs)
+	return base + "_" + linkHash[:7] + "-" + hash[:7]
 }
 
 // currentWorktree reads symlink path of the given worktree link
