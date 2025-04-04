@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -25,6 +26,9 @@ const (
 )
 
 var (
+	ErrRepoMirrorFailed   = errors.New("repository mirror failed")
+	ErrRepoWTUpdateFailed = errors.New("repository worktree update failed")
+
 	gitExecutablePath string
 	staleTimeout      time.Duration = 10 * time.Second // time for stale worktrees to be cleaned up
 
@@ -135,7 +139,7 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 
 	for _, wtc := range repoConf.Worktrees {
 		if err := repo.AddWorktreeLink(wtc); err != nil {
-			return nil, fmt.Errorf("unable to create worktree link err:%w", err)
+			return nil, fmt.Errorf("unable to add worktree link err:%w", err)
 		}
 	}
 	return repo, nil
@@ -477,35 +481,40 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	start := time.Now()
 
 	if err := r.init(ctx); err != nil {
-		return fmt.Errorf("unable to init repo:%s  err:%w", r.gitURL.Repo, err)
+		r.log.Error("unable to init repo", "err", err)
+		return ErrRepoMirrorFailed
 	}
 
 	refs, err := r.fetch(ctx)
 	if err != nil {
-		return fmt.Errorf("unable to fetch repo:%s  err:%w", r.gitURL.Repo, err)
+		r.log.Error("unable to fetch repo", "err", err)
+		return ErrRepoMirrorFailed
 	}
 
 	fetchTime := time.Since(start)
 
+	var wtError error
 	// worktree might need re-creating if it fails check
-	// so always ensure worktree even if nothing fetched
+	// so always ensure worktree even if nothing fetched.
+	// continue on error to make sync process more resilient
 	for _, wl := range r.workTreeLinks {
 		if err := r.ensureWorktreeLink(ctx, wl); err != nil {
-			return fmt.Errorf("unable to ensure worktree links repo:%s link:%s  err:%w", r.gitURL.Repo, wl.link, err)
+			r.log.Error("unable to ensure worktree links", "err", err)
+			wtError = ErrRepoWTUpdateFailed
 		}
 	}
 
 	// clean-up can be skipped
 	if len(refs) == 0 {
-		return nil
+		return wtError
 	}
 
 	if err := r.cleanup(ctx); err != nil {
-		return fmt.Errorf("unable to cleanup repo:%s  err:%w", r.gitURL.Repo, err)
+		r.log.Error("unable to cleanup repo", "err", err)
 	}
 
 	r.log.Debug("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))
-	return nil
+	return wtError
 }
 
 // RemoveWorktreeLink removes workTree link from the mirror repository.
@@ -742,6 +751,13 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 	if err != nil {
 		return fmt.Errorf("unable to get hash for worktree:%s err:%w", wl.link, err)
 	}
+
+	// if we get empty remote hash so either given worktree ref do not exits yet or
+	// its removed from the remote
+	if remoteHash == "" {
+		return fmt.Errorf("hash not found for given ref:%s for worktree:%s", wl.ref, wl.link)
+	}
+
 	var currentHash, currentPath string
 
 	// we do not care if we cant get old worktree path as we can create it
@@ -758,26 +774,6 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 			// in case of error we create new worktree
 			wl.log.Error("unable to get current worktree hash", "err", err)
 		}
-	}
-
-	// we got empty remote hash so either given worktree ref do not exits yet or
-	// its removed from the remote
-	if remoteHash == "" {
-		wt, err := wl.currentWorktree()
-		if err != nil {
-			wl.log.Error("can't get current worktree", "err", err)
-			return nil
-		}
-		if wt == "" {
-			return nil
-		}
-
-		wl.log.Info("remote hash is empty, removing old worktree", "path", currentPath)
-		if err := r.removeWorktree(ctx, wt); err != nil {
-			wl.log.Error("unable to remove old worktree", "err", err)
-		}
-
-		return nil
 	}
 
 	if currentHash == remoteHash {
@@ -815,6 +811,8 @@ func (r *Repository) createWorktree(ctx context.Context, wl *WorkTreeLink, hash 
 
 	// remove any existing worktree as we cant create new worktree if path is
 	// not empty
+	// since wtPath contains git hash it will always be either new path or
+	// existing worktree with failed sanity check
 	if err := r.removeWorktree(ctx, wtPath); err != nil {
 		return wtPath, err
 	}
