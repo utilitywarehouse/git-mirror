@@ -141,16 +141,25 @@ func main() {
 		os.Exit(1)
 	}
 
-	// perform 1st mirror to ensure all repositories before starting controller
-	// initial mirror might take longer
+	allSucceed := true
+	// perform 1st mirror to ensure all repositories syncs to indicate readiness
+	// also initial mirror might take longer
 	timeout := 2 * conf.Defaults.MirrorTimeout
-	if err := repoPool.MirrorAll(ctx, timeout); err != nil {
-		logger.Error("could not perform initial repositories mirror", "err", err)
-		os.Exit(1)
+	for _, repo := range conf.Repositories {
+		mCtx, cancel := context.WithTimeout(ctx, timeout)
+		err = repoPool.Mirror(mCtx, repo.Remote)
+		cancel()
+		if err != nil {
+			allSucceed = false
+			logger.Error("initial mirror failed", "repo", repo.Remote, "err", err)
+		}
 	}
 
 	if *flagOneTime {
 		logger.Info("existing after first mirror")
+		if !allSucceed {
+			os.Exit(1)
+		}
 		os.Exit(0)
 	}
 

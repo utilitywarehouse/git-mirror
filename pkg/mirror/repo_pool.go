@@ -2,6 +2,7 @@ package mirror
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,8 +14,8 @@ import (
 )
 
 var (
-	ErrExist    = fmt.Errorf("repo already exist")
-	ErrNotExist = fmt.Errorf("repo does not exist")
+	ErrExist    = errors.New("repo already exist")
+	ErrNotExist = errors.New("repo does not exist")
 )
 
 // RepoPool represents the collection of mirrored repositories
