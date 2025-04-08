@@ -11,7 +11,6 @@ import (
 )
 
 func Test_diffRepositories(t *testing.T) {
-
 	tests := []struct {
 		name             string
 		initialConfig    *mirror.RepoPoolConfig
@@ -199,7 +198,6 @@ func Test_diffWorktrees(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			if err := tt.initialRepoConf.PopulateEmptyLinkPaths(); err != nil {
 				t.Fatalf("failed to create repo error = %v", err)
 			}
@@ -230,6 +228,137 @@ func Test_diffWorktrees(t *testing.T) {
 			}
 			if diff := cmp.Diff(gotRemovedWTs, tt.wantRemovedWTs); diff != "" {
 				t.Errorf("diffWorktrees() RemovedWTs mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func Test_validateConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		yamlData  []byte
+		wantError bool
+	}{
+		{
+			name: "valid",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+  link_root: /tmp/links
+  interval: 30s
+  mirror_timeout: 2m
+  git_gc: always
+  auth:
+    ssh_key_path: /etc/git-secret/ssh
+    ssh_known_hosts_path: /etc/git-secret/known_hosts
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees:
+      - link: aaa
+        ref: main
+        pathspecs:
+          - readme.md
+      - link: bbb
+        ref: main
+  - remote: https://github.com/utilitywarehouse/another-repo
+    worktrees:
+      - link: ccc
+        ref: main
+        pathspecs:
+          - readme.md
+`),
+			wantError: false,
+		},
+		{
+			name: "invalid - unexpected key",
+			yamlData: []byte(`
+not-valid:
+	test: test
+
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - defaults missing",
+			yamlData: []byte(`
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - repositories missing",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in defaults",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+	not_valid: test
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in auth",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+	not_valid: test
+  auth:
+    not_valid: test
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in repositories",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+		not_valid: test
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in repository worktrees",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees:
+      - link: aaa
+				not_valid: test
+`),
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateConfig(tt.yamlData)
+			if (err != nil) != tt.wantError {
+				t.Errorf("validateConfig() error = %v, wantError %v", err, tt.wantError)
 			}
 		})
 	}

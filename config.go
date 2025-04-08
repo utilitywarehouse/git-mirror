@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path"
+	"reflect"
+	"slices"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -174,12 +177,114 @@ func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	err = validateConfig([]byte(yamlFile))
+	if err != nil {
+		return nil, err
+	}
+
 	conf := &mirror.RepoPoolConfig{}
 	err = yaml.Unmarshal(yamlFile, conf)
 	if err != nil {
 		return nil, err
 	}
+
 	return conf, nil
+}
+
+func validateConfig(yamlData []byte) error {
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(yamlData, &raw); err != nil {
+		return err
+	}
+
+	// defaults and repositories sections are mandatory
+	if _, ok := raw["defaults"]; !ok {
+		return fmt.Errorf("defaults config section is missing")
+	}
+
+	if _, ok := raw["repositories"]; !ok {
+		return fmt.Errorf("repositories config section is missing")
+	}
+
+	// check config sections for unexpected keys
+	allowedRepoPoolConfig := getAllowedKeys(mirror.RepoPoolConfig{})
+	if key := findUnexpectedKey(raw, allowedRepoPoolConfig); key != "" {
+		return fmt.Errorf("unexpected key: .%v", key)
+	}
+
+	// check "defaults" section
+	defaultsMap, ok := raw["defaults"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("defaults section is missing or not valid")
+	}
+	allowedDefaults := getAllowedKeys(mirror.DefaultConfig{})
+
+	if key := findUnexpectedKey(defaultsMap, allowedDefaults); key != "" {
+		return fmt.Errorf("unexpected key: .defaults.%v", key)
+	}
+
+	// check "auth" section in "defaults"
+	if authMap, ok := defaultsMap["auth"].(map[string]interface{}); ok {
+		allowedAuthKeys := getAllowedKeys(mirror.Auth{})
+		if key := findUnexpectedKey(authMap, allowedAuthKeys); key != "" {
+			return fmt.Errorf("unexpected key: .defaults.auth.%v", key)
+		}
+	}
+
+	// check each repository in "repositories" section
+	allowedRepoKeys := getAllowedKeys(mirror.RepositoryConfig{})
+	for _, repoInterface := range raw["repositories"].([]interface{}) {
+		repoMap, ok := repoInterface.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("repositories config section is not valid")
+		}
+
+		if key := findUnexpectedKey(repoMap, allowedRepoKeys); key != "" {
+			return fmt.Errorf("unexpected key: .repositories[%v].%v", repoMap["remote"], key)
+		}
+
+		// check each "worktrees" section in each repository
+		for _, worktreeInterface := range repoMap["worktrees"].([]interface{}) {
+			worktreeMap, ok := worktreeInterface.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("worktrees config section is not valid in .repositories[%v]", repoMap["remote"])
+			}
+
+			allowedWorktreeKeys := getAllowedKeys(mirror.WorktreeConfig{})
+			if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
+				return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], worktreeMap["link"], key)
+			}
+		}
+	}
+
+	return nil
+}
+
+// getAllowedKeys retrieves a list of allowed keys from the specified struct
+func getAllowedKeys(config interface{}) []string {
+	var allowedKeys []string
+	val := reflect.ValueOf(config)
+	typ := reflect.TypeOf(config)
+
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		yamlTag := field.Tag.Get("yaml")
+		if yamlTag != "" {
+			allowedKeys = append(allowedKeys, yamlTag)
+		}
+	}
+	return allowedKeys
+}
+
+func findUnexpectedKey(raw interface{}, allowedKeys []string) string {
+	for key := range raw.(map[string]interface{}) {
+		if !slices.Contains(allowedKeys, key) {
+			return key
+		}
+	}
+
+	return ""
 }
 
 // diffRepositories will do the diff between current state and new config and
