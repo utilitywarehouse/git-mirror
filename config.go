@@ -183,7 +183,7 @@ func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 		return nil, err
 	}
 
-	err = validateConfig([]byte(yamlFile))
+	err = validateConfigYaml([]byte(yamlFile))
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +197,7 @@ func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 	return conf, nil
 }
 
-func validateConfig(yamlData []byte) error {
+func validateConfigYaml(yamlData []byte) error {
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(yamlData, &raw); err != nil {
 		return err

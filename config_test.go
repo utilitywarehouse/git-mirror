@@ -233,7 +233,7 @@ func Test_diffWorktrees(t *testing.T) {
 	}
 }
 
-func Test_validateConfig(t *testing.T) {
+func Test_validateConfigYaml(t *testing.T) {
 	tests := []struct {
 		name      string
 		yamlData  []byte
@@ -403,9 +403,9 @@ repositories:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateConfig(tt.yamlData)
+			err := validateConfigYaml(tt.yamlData)
 			if (err != nil) != tt.wantError {
-				t.Errorf("validateConfig() error = %v, wantError %v", err, tt.wantError)
+				t.Errorf("validateConfigYaml() error = %v, wantError %v", err, tt.wantError)
 			}
 		})
 	}
