@@ -328,7 +328,6 @@ repositories:
 			yamlData: []byte(`
 defaults:
   root: /tmp/git-mirror
-  not_valid: test
   auth:
     not_valid: test
 
