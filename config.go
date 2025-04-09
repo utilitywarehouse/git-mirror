@@ -273,7 +273,7 @@ func validateConfig(yamlData []byte) error {
 			// Check "pathspecs" in each worktree
 			if pathspecsInterface, exists := worktreeMap["pathspecs"]; exists {
 				if _, ok := pathspecsInterface.([]interface{}); !ok {
-					return fmt.Errorf("pathspecs config must be an array in .repositories[%v].worktrees[%v]", repoMap["remote"], worktreeMap["link"])
+					return fmt.Errorf("pathspecs config must be an array in .repositories[%v].worktrees[%v]", repoMap["remote"], i)
 				}
 			}
 		}
