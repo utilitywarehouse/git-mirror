@@ -35,6 +35,11 @@ var (
 		Name: "git_mirror_config_last_reload_success_timestamp_seconds",
 		Help: "Timestamp of the last successful configuration reload.",
 	})
+	allowedRepoPoolConfig = getAllowedKeys(mirror.RepoPoolConfig{})
+	allowedDefaults       = getAllowedKeys(mirror.DefaultConfig{})
+	allowedAuthKeys       = getAllowedKeys(mirror.Auth{})
+	allowedRepoKeys       = getAllowedKeys(mirror.RepositoryConfig{})
+	allowedWorktreeKeys   = getAllowedKeys(mirror.WorktreeConfig{})
 )
 
 // WatchConfig polls the config file every interval and reloads if modified
@@ -198,8 +203,6 @@ func validateConfig(yamlData []byte) error {
 		return err
 	}
 
-	allowedRepoPoolConfig := getAllowedKeys(mirror.RepoPoolConfig{})
-
 	// check all root config sections for unexpected keys
 	if key := findUnexpectedKey(raw, allowedRepoPoolConfig); key != "" {
 		return fmt.Errorf("unexpected key: .%v", key)
@@ -207,8 +210,6 @@ func validateConfig(yamlData []byte) error {
 
 	// check ".defaults" if it's not empty
 	if raw["defaults"] != nil {
-		allowedDefaults := getAllowedKeys(mirror.DefaultConfig{})
-
 		defaultsMap, ok := raw["defaults"].(map[string]interface{})
 		if !ok {
 			return fmt.Errorf(".defaults config is not valid")
@@ -220,14 +221,13 @@ func validateConfig(yamlData []byte) error {
 
 		// check ".defaults.auth"
 		if authMap, ok := defaultsMap["auth"].(map[string]interface{}); ok {
-			allowedAuthKeys := getAllowedKeys(mirror.Auth{})
 			if key := findUnexpectedKey(authMap, allowedAuthKeys); key != "" {
 				return fmt.Errorf("unexpected key: .defaults.auth.%v", key)
 			}
 		}
 	}
 
-	// skip further checks if ".repositories" is empty
+	// skip further config checks if ".repositories" is empty
 	if raw["repositories"] == nil {
 		return nil
 	}
@@ -239,8 +239,6 @@ func validateConfig(yamlData []byte) error {
 	}
 
 	// check each repository in ".repositories"
-	allowedRepoKeys := getAllowedKeys(mirror.RepositoryConfig{})
-	allowedWorktreeKeys := getAllowedKeys(mirror.WorktreeConfig{})
 
 	for _, repoInterface := range reposInterface {
 		repoMap, ok := repoInterface.(map[string]interface{})
@@ -252,28 +250,31 @@ func validateConfig(yamlData []byte) error {
 			return fmt.Errorf("unexpected key: .repositories[%v].%v", repoMap["remote"], key)
 		}
 
+		// skip further repository checks if "worktrees" is empty
+		if repoMap["worktrees"] == nil {
+			continue
+		}
+
 		// check "worktrees" in each repository
-		if worktreesInterface, exists := repoMap["worktrees"]; exists {
-			_, ok := repoMap["worktrees"].([]interface{})
+		worktreesInterface, ok := repoMap["worktrees"].([]interface{})
+		if !ok {
+			return fmt.Errorf("worktrees config must be an array in .repositories[%v]", repoMap["remote"])
+		}
+
+		for _, worktreeInterface := range worktreesInterface {
+			worktreeMap, ok := worktreeInterface.(map[string]interface{})
 			if !ok {
-				return fmt.Errorf("worktrees config must be an array in .repositories[%v]", repoMap["remote"])
+				return fmt.Errorf("worktrees config is not valid in .repositories[%v]", repoMap["remote"])
 			}
 
-			for _, worktreeInterface := range worktreesInterface.([]interface{}) {
-				worktreeMap, ok := worktreeInterface.(map[string]interface{})
-				if !ok {
-					return fmt.Errorf("worktrees config is not valid in .repositories[%v]", repoMap["remote"])
-				}
+			if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
+				return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], worktreeMap["link"], key)
+			}
 
-				if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
-					return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], worktreeMap["link"], key)
-				}
-
-				// Check "pathspecs" in each worktree
-				if pathspecsInterface, exists := worktreeMap["pathspecs"]; exists {
-					if _, ok := pathspecsInterface.([]interface{}); !ok {
-						return fmt.Errorf("pathspecs config must be an array in .repositories[%v].worktrees[%v]", repoMap["remote"], worktreeMap["link"])
-					}
+			// Check "pathspecs" in each worktree
+			if pathspecsInterface, exists := worktreeMap["pathspecs"]; exists {
+				if _, ok := pathspecsInterface.([]interface{}); !ok {
+					return fmt.Errorf("pathspecs config must be an array in .repositories[%v].worktrees[%v]", repoMap["remote"], worktreeMap["link"])
 				}
 			}
 		}
@@ -298,8 +299,8 @@ func getAllowedKeys(config interface{}) []string {
 	return allowedKeys
 }
 
-func findUnexpectedKey(raw interface{}, allowedKeys []string) string {
-	for key := range raw.(map[string]interface{}) {
+func findUnexpectedKey(raw map[string]interface{}, allowedKeys []string) string {
+	for key := range raw {
 		if !slices.Contains(allowedKeys, key) {
 			return key
 		}
