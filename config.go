@@ -198,62 +198,81 @@ func validateConfig(yamlData []byte) error {
 		return err
 	}
 
-	// defaults and repositories sections are mandatory
-	if _, ok := raw["defaults"]; !ok {
-		return fmt.Errorf("defaults config section is missing")
+	// skip checks if ".repositories" is empty
+	if raw["repositories"] == nil {
+		return nil
 	}
 
-	if _, ok := raw["repositories"]; !ok {
-		return fmt.Errorf("repositories config section is missing")
-	}
-
-	// check config sections for unexpected keys
+	// check all root config sections for unexpected keys
 	allowedRepoPoolConfig := getAllowedKeys(mirror.RepoPoolConfig{})
 	if key := findUnexpectedKey(raw, allowedRepoPoolConfig); key != "" {
 		return fmt.Errorf("unexpected key: .%v", key)
 	}
 
-	// check "defaults" section
-	defaultsMap, ok := raw["defaults"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("defaults section is missing or not valid")
-	}
-	allowedDefaults := getAllowedKeys(mirror.DefaultConfig{})
+	// check ".defaults"
+	if _, exists := raw["defaults"]; exists {
+		defaultsMap, ok := raw["defaults"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf(".defaults config is not valid")
+		}
+		allowedDefaults := getAllowedKeys(mirror.DefaultConfig{})
 
-	if key := findUnexpectedKey(defaultsMap, allowedDefaults); key != "" {
-		return fmt.Errorf("unexpected key: .defaults.%v", key)
-	}
+		if key := findUnexpectedKey(defaultsMap, allowedDefaults); key != "" {
+			return fmt.Errorf("unexpected key: .defaults.%v", key)
+		}
 
-	// check "auth" section in "defaults"
-	if authMap, ok := defaultsMap["auth"].(map[string]interface{}); ok {
-		allowedAuthKeys := getAllowedKeys(mirror.Auth{})
-		if key := findUnexpectedKey(authMap, allowedAuthKeys); key != "" {
-			return fmt.Errorf("unexpected key: .defaults.auth.%v", key)
+		// check ".defaults.auth"
+		if authMap, ok := defaultsMap["auth"].(map[string]interface{}); ok {
+			allowedAuthKeys := getAllowedKeys(mirror.Auth{})
+			if key := findUnexpectedKey(authMap, allowedAuthKeys); key != "" {
+				return fmt.Errorf("unexpected key: .defaults.auth.%v", key)
+			}
 		}
 	}
 
-	// check each repository in "repositories" section
+	// check ".repositories"
+	reposInterface, ok := raw["repositories"].([]interface{})
+	if !ok {
+		return fmt.Errorf(".repositories config must be an array")
+	}
+
+	// check each repository in ".repositories"
 	allowedRepoKeys := getAllowedKeys(mirror.RepositoryConfig{})
-	for _, repoInterface := range raw["repositories"].([]interface{}) {
+
+	for _, repoInterface := range reposInterface {
 		repoMap, ok := repoInterface.(map[string]interface{})
 		if !ok {
-			return fmt.Errorf("repositories config section is not valid")
+			return fmt.Errorf(".repositories config is not valid")
 		}
 
 		if key := findUnexpectedKey(repoMap, allowedRepoKeys); key != "" {
 			return fmt.Errorf("unexpected key: .repositories[%v].%v", repoMap["remote"], key)
 		}
 
-		// check each "worktrees" section in each repository
-		for _, worktreeInterface := range repoMap["worktrees"].([]interface{}) {
-			worktreeMap, ok := worktreeInterface.(map[string]interface{})
+		// check "worktrees" in each repository
+		if worktreesInterface, exists := repoMap["worktrees"]; exists {
+			_, ok := repoMap["worktrees"].([]interface{})
 			if !ok {
-				return fmt.Errorf("worktrees config section is not valid in .repositories[%v]", repoMap["remote"])
+				return fmt.Errorf("worktrees config must be an array in .repositories[%v]", repoMap["remote"])
 			}
 
-			allowedWorktreeKeys := getAllowedKeys(mirror.WorktreeConfig{})
-			if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
-				return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], worktreeMap["link"], key)
+			for _, worktreeInterface := range worktreesInterface.([]interface{}) {
+				worktreeMap, ok := worktreeInterface.(map[string]interface{})
+				if !ok {
+					return fmt.Errorf("worktrees config is not valid in .repositories[%v]", repoMap["remote"])
+				}
+
+				allowedWorktreeKeys := getAllowedKeys(mirror.WorktreeConfig{})
+				if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
+					return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], worktreeMap["link"], key)
+				}
+
+				// Check "pathspecs" in each worktree
+				if pathspecsInterface, exists := worktreeMap["pathspecs"]; exists {
+					if _, ok := pathspecsInterface.([]interface{}); !ok {
+						return fmt.Errorf("pathspecs config must be an array in .repositories[%v].worktrees[%v]", repoMap["remote"], worktreeMap["link"])
+					}
+				}
 			}
 		}
 	}

@@ -240,7 +240,7 @@ func Test_validateConfig(t *testing.T) {
 		wantError bool
 	}{
 		{
-			name: "valid",
+			name: "valid - full config",
 			yamlData: []byte(`
 defaults:
   root: /tmp/git-mirror
@@ -257,16 +257,43 @@ repositories:
     worktrees:
       - link: aaa
         ref: main
-        pathspecs:
-          - readme.md
       - link: bbb
         ref: main
   - remote: https://github.com/utilitywarehouse/another-repo
+    root: /some/other/location
+    link_root: /some/path
+    interval: 1m
+    mirror_timeout: 5m
+    git_gc: always
+    auth:
+      ssh_key_path: /some/other/location
+      ssh_known_hosts_path: /some/other/location
     worktrees:
-      - link: ccc
+      - link: alerts
         ref: main
         pathspecs:
-          - readme.md
+          - path
+          - path2/*.yaml
+`),
+			wantError: false,
+		},
+		{
+			name: "valid - empty config",
+			yamlData: []byte(`
+`),
+			wantError: false,
+		},
+		{
+			name: "valid - defaults config only",
+			yamlData: []byte(`
+defaults:
+`),
+			wantError: false,
+		},
+		{
+			name: "valid - repositories config only",
+			yamlData: []byte(`
+repositories:
 `),
 			wantError: false,
 		},
@@ -281,22 +308,6 @@ defaults:
 
 repositories:
   - remote: https://github.com/utilitywarehouse/git-mirror
-`),
-			wantError: true,
-		},
-		{
-			name: "invalid - defaults missing",
-			yamlData: []byte(`
-repositories:
-  - remote: https://github.com/utilitywarehouse/git-mirror
-`),
-			wantError: true,
-		},
-		{
-			name: "invalid - repositories missing",
-			yamlData: []byte(`
-defaults:
-  root: /tmp/git-mirror
 `),
 			wantError: true,
 		},
@@ -349,6 +360,43 @@ repositories:
     worktrees:
       - link: aaa
 				not_valid: test
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - repositories is not an array",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - worktrees is not an array",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees: test
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - pathspecs is not an array",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees:
+      - link: aaa
+				not_valid: test
+			  pathspecs: readme.md
 `),
 			wantError: true,
 		},
