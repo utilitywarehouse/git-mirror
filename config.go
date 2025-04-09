@@ -260,14 +260,14 @@ func validateConfig(yamlData []byte) error {
 			return fmt.Errorf("worktrees config must be an array in .repositories[%v]", repoMap["remote"])
 		}
 
-		for _, worktreeInterface := range worktreesInterface {
+		for i, worktreeInterface := range worktreesInterface {
 			worktreeMap, ok := worktreeInterface.(map[string]interface{})
 			if !ok {
 				return fmt.Errorf("worktrees config is not valid in .repositories[%v]", repoMap["remote"])
 			}
 
 			if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
-				return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], worktreeMap["link"], key)
+				return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], i, key)
 			}
 
 			// Check "pathspecs" in each worktree
