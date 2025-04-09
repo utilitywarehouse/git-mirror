@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path"
+	"reflect"
+	"slices"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,6 +35,11 @@ var (
 		Name: "git_mirror_config_last_reload_success_timestamp_seconds",
 		Help: "Timestamp of the last successful configuration reload.",
 	})
+	allowedRepoPoolConfig = getAllowedKeys(mirror.RepoPoolConfig{})
+	allowedDefaults       = getAllowedKeys(mirror.DefaultConfig{})
+	allowedAuthKeys       = getAllowedKeys(mirror.Auth{})
+	allowedRepoKeys       = getAllowedKeys(mirror.RepositoryConfig{})
+	allowedWorktreeKeys   = getAllowedKeys(mirror.WorktreeConfig{})
 )
 
 // WatchConfig polls the config file every interval and reloads if modified
@@ -174,12 +182,130 @@ func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	err = validateConfigYaml([]byte(yamlFile))
+	if err != nil {
+		return nil, err
+	}
+
 	conf := &mirror.RepoPoolConfig{}
 	err = yaml.Unmarshal(yamlFile, conf)
 	if err != nil {
 		return nil, err
 	}
+
 	return conf, nil
+}
+
+func validateConfigYaml(yamlData []byte) error {
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(yamlData, &raw); err != nil {
+		return err
+	}
+
+	// check all root config sections for unexpected keys
+	if key := findUnexpectedKey(raw, allowedRepoPoolConfig); key != "" {
+		return fmt.Errorf("unexpected key: .%v", key)
+	}
+
+	// check ".defaults" if it's not empty
+	if raw["defaults"] != nil {
+		defaultsMap, ok := raw["defaults"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf(".defaults config is not valid")
+		}
+
+		if key := findUnexpectedKey(defaultsMap, allowedDefaults); key != "" {
+			return fmt.Errorf("unexpected key: .defaults.%v", key)
+		}
+
+		// check ".defaults.auth"
+		if authMap, ok := defaultsMap["auth"].(map[string]interface{}); ok {
+			if key := findUnexpectedKey(authMap, allowedAuthKeys); key != "" {
+				return fmt.Errorf("unexpected key: .defaults.auth.%v", key)
+			}
+		}
+	}
+
+	// skip further config checks if ".repositories" is empty
+	if raw["repositories"] == nil {
+		return nil
+	}
+
+	// check ".repositories"
+	reposInterface, ok := raw["repositories"].([]interface{})
+	if !ok {
+		return fmt.Errorf(".repositories config must be an array")
+	}
+
+	// check each repository in ".repositories"
+	for _, repoInterface := range reposInterface {
+		repoMap, ok := repoInterface.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf(".repositories config is not valid")
+		}
+
+		if key := findUnexpectedKey(repoMap, allowedRepoKeys); key != "" {
+			return fmt.Errorf("unexpected key: .repositories[%v].%v", repoMap["remote"], key)
+		}
+
+		// skip further repository checks if "worktrees" is empty
+		if repoMap["worktrees"] == nil {
+			continue
+		}
+
+		// check "worktrees" in each repository
+		worktreesInterface, ok := repoMap["worktrees"].([]interface{})
+		if !ok {
+			return fmt.Errorf("worktrees config must be an array in .repositories[%v]", repoMap["remote"])
+		}
+
+		for i, worktreeInterface := range worktreesInterface {
+			worktreeMap, ok := worktreeInterface.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("worktrees config is not valid in .repositories[%v]", repoMap["remote"])
+			}
+
+			if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
+				return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], i, key)
+			}
+
+			// Check "pathspecs" in each worktree
+			if pathspecsInterface, exists := worktreeMap["pathspecs"]; exists {
+				if _, ok := pathspecsInterface.([]interface{}); !ok {
+					return fmt.Errorf("pathspecs config must be an array in .repositories[%v].worktrees[%v]", repoMap["remote"], i)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// getAllowedKeys retrieves a list of allowed keys from the specified struct
+func getAllowedKeys(config interface{}) []string {
+	var allowedKeys []string
+	val := reflect.ValueOf(config)
+	typ := reflect.TypeOf(config)
+
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		yamlTag := field.Tag.Get("yaml")
+		if yamlTag != "" {
+			allowedKeys = append(allowedKeys, yamlTag)
+		}
+	}
+	return allowedKeys
+}
+
+func findUnexpectedKey(raw map[string]interface{}, allowedKeys []string) string {
+	for key := range raw {
+		if !slices.Contains(allowedKeys, key) {
+			return key
+		}
+	}
+
+	return ""
 }
 
 // diffRepositories will do the diff between current state and new config and

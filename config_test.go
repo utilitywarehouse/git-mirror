@@ -11,7 +11,6 @@ import (
 )
 
 func Test_diffRepositories(t *testing.T) {
-
 	tests := []struct {
 		name             string
 		initialConfig    *mirror.RepoPoolConfig
@@ -199,7 +198,6 @@ func Test_diffWorktrees(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
 			if err := tt.initialRepoConf.PopulateEmptyLinkPaths(); err != nil {
 				t.Fatalf("failed to create repo error = %v", err)
 			}
@@ -230,6 +228,184 @@ func Test_diffWorktrees(t *testing.T) {
 			}
 			if diff := cmp.Diff(gotRemovedWTs, tt.wantRemovedWTs); diff != "" {
 				t.Errorf("diffWorktrees() RemovedWTs mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func Test_validateConfigYaml(t *testing.T) {
+	tests := []struct {
+		name      string
+		yamlData  []byte
+		wantError bool
+	}{
+		{
+			name: "valid - full config",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+  link_root: /tmp/links
+  interval: 30s
+  mirror_timeout: 2m
+  git_gc: always
+  auth:
+    ssh_key_path: /etc/git-secret/ssh
+    ssh_known_hosts_path: /etc/git-secret/known_hosts
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees:
+      - link: aaa
+        ref: main
+      - link: bbb
+        ref: main
+  - remote: https://github.com/utilitywarehouse/another-repo
+    root: /some/other/location
+    link_root: /some/path
+    interval: 1m
+    mirror_timeout: 5m
+    git_gc: always
+    auth:
+      ssh_key_path: /some/other/location
+      ssh_known_hosts_path: /some/other/location
+    worktrees:
+      - link: alerts
+        ref: main
+        pathspecs:
+          - path
+          - path2/*.yaml
+`),
+			wantError: false,
+		},
+		{
+			name: "valid - empty config",
+			yamlData: []byte(`
+`),
+			wantError: false,
+		},
+		{
+			name: "valid - defaults config only",
+			yamlData: []byte(`
+defaults:
+`),
+			wantError: false,
+		},
+		{
+			name: "valid - repositories config only",
+			yamlData: []byte(`
+repositories:
+`),
+			wantError: false,
+		},
+		{
+			name: "invalid - unexpected key",
+			yamlData: []byte(`
+not-valid:
+  test: test
+
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in defaults",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+  not_valid: test
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in auth",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+  auth:
+    not_valid: test
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in repositories",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    not_valid: test
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - unexpected key in repository worktrees",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees:
+      - link: aaa
+        not_valid: test
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - repositories is not an array",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories: https://github.com/utilitywarehouse/git-mirror
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - worktrees is not an array",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees: test
+`),
+			wantError: true,
+		},
+		{
+			name: "invalid - pathspecs is not an array",
+			yamlData: []byte(`
+defaults:
+  root: /tmp/git-mirror
+
+repositories:
+  - remote: https://github.com/utilitywarehouse/git-mirror
+    worktrees:
+      - link: aaa
+        not_valid: test
+        pathspecs: readme.md
+`),
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateConfigYaml(tt.yamlData)
+			if (err != nil) != tt.wantError {
+				t.Errorf("validateConfigYaml() error = %v, wantError %v", err, tt.wantError)
 			}
 		})
 	}
