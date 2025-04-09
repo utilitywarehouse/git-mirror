@@ -86,7 +86,8 @@ func loadConfig(path string, lastModTime time.Time, onChange func(*mirror.RepoPo
 	newConfig, err := parseConfigFile(path)
 	if err != nil {
 		logger.Error("failed to reload config", "err", err)
-		return lastModTime, false
+		// update modTime to re-evaluate after an update
+		return modTime, false
 	}
 	return modTime, onChange(newConfig)
 }
@@ -180,18 +181,18 @@ func applyGitDefaults(mirrorConf *mirror.RepoPoolConfig) {
 func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 	yamlFile, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read file err:%w", err)
 	}
 
-	err = validateConfigYaml([]byte(yamlFile))
+	err = validateConfigYaml(yamlFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid config err:%w", err)
 	}
 
 	conf := &mirror.RepoPoolConfig{}
 	err = yaml.Unmarshal(yamlFile, conf)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to decode config err:%w", err)
 	}
 
 	return conf, nil
@@ -200,7 +201,7 @@ func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 func validateConfigYaml(yamlData []byte) error {
 	var raw map[string]interface{}
 	if err := yaml.Unmarshal(yamlData, &raw); err != nil {
-		return err
+		return fmt.Errorf("unable to decode config err:%w", err)
 	}
 
 	// check all root config sections for unexpected keys
