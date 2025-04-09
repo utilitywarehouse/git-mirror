@@ -239,7 +239,6 @@ func validateConfig(yamlData []byte) error {
 	}
 
 	// check each repository in ".repositories"
-
 	for _, repoInterface := range reposInterface {
 		repoMap, ok := repoInterface.(map[string]interface{})
 		if !ok {
