@@ -301,7 +301,7 @@ repositories:
 			name: "invalid - unexpected key",
 			yamlData: []byte(`
 not-valid:
-	test: test
+  test: test
 
 defaults:
   root: /tmp/git-mirror
@@ -316,7 +316,7 @@ repositories:
 			yamlData: []byte(`
 defaults:
   root: /tmp/git-mirror
-	not_valid: test
+  not_valid: test
 
 repositories:
   - remote: https://github.com/utilitywarehouse/git-mirror
@@ -328,7 +328,7 @@ repositories:
 			yamlData: []byte(`
 defaults:
   root: /tmp/git-mirror
-	not_valid: test
+  not_valid: test
   auth:
     not_valid: test
 
@@ -345,7 +345,7 @@ defaults:
 
 repositories:
   - remote: https://github.com/utilitywarehouse/git-mirror
-		not_valid: test
+    not_valid: test
 `),
 			wantError: true,
 		},
@@ -359,7 +359,7 @@ repositories:
   - remote: https://github.com/utilitywarehouse/git-mirror
     worktrees:
       - link: aaa
-				not_valid: test
+        not_valid: test
 `),
 			wantError: true,
 		},
@@ -395,8 +395,8 @@ repositories:
   - remote: https://github.com/utilitywarehouse/git-mirror
     worktrees:
       - link: aaa
-				not_valid: test
-			  pathspecs: readme.md
+        not_valid: test
+        pathspecs: readme.md
 `),
 			wantError: true,
 		},

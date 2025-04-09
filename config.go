@@ -198,24 +198,21 @@ func validateConfig(yamlData []byte) error {
 		return err
 	}
 
-	// skip checks if ".repositories" is empty
-	if raw["repositories"] == nil {
-		return nil
-	}
+	allowedRepoPoolConfig := getAllowedKeys(mirror.RepoPoolConfig{})
 
 	// check all root config sections for unexpected keys
-	allowedRepoPoolConfig := getAllowedKeys(mirror.RepoPoolConfig{})
 	if key := findUnexpectedKey(raw, allowedRepoPoolConfig); key != "" {
 		return fmt.Errorf("unexpected key: .%v", key)
 	}
 
-	// check ".defaults"
-	if _, exists := raw["defaults"]; exists {
+	// check ".defaults" if it's not empty
+	if raw["defaults"] != nil {
+		allowedDefaults := getAllowedKeys(mirror.DefaultConfig{})
+
 		defaultsMap, ok := raw["defaults"].(map[string]interface{})
 		if !ok {
 			return fmt.Errorf(".defaults config is not valid")
 		}
-		allowedDefaults := getAllowedKeys(mirror.DefaultConfig{})
 
 		if key := findUnexpectedKey(defaultsMap, allowedDefaults); key != "" {
 			return fmt.Errorf("unexpected key: .defaults.%v", key)
@@ -230,6 +227,11 @@ func validateConfig(yamlData []byte) error {
 		}
 	}
 
+	// skip further checks if ".repositories" is empty
+	if raw["repositories"] == nil {
+		return nil
+	}
+
 	// check ".repositories"
 	reposInterface, ok := raw["repositories"].([]interface{})
 	if !ok {
@@ -238,6 +240,7 @@ func validateConfig(yamlData []byte) error {
 
 	// check each repository in ".repositories"
 	allowedRepoKeys := getAllowedKeys(mirror.RepositoryConfig{})
+	allowedWorktreeKeys := getAllowedKeys(mirror.WorktreeConfig{})
 
 	for _, repoInterface := range reposInterface {
 		repoMap, ok := repoInterface.(map[string]interface{})
@@ -262,7 +265,6 @@ func validateConfig(yamlData []byte) error {
 					return fmt.Errorf("worktrees config is not valid in .repositories[%v]", repoMap["remote"])
 				}
 
-				allowedWorktreeKeys := getAllowedKeys(mirror.WorktreeConfig{})
 				if key := findUnexpectedKey(worktreeMap, allowedWorktreeKeys); key != "" {
 					return fmt.Errorf("unexpected key: .repositories[%v].worktrees[%v].%v", repoMap["remote"], worktreeMap["link"], key)
 				}
