@@ -302,7 +302,7 @@ func (r *Repository) ObjectExists(ctx context.Context, obj string) error {
 // if ref is commit hash then pathspec will be ignored.
 // if rmGitDir is true `.git` folder will be deleted after the clone.
 // if dst not empty all its contents will be removed.
-func (r *Repository) Clone(ctx context.Context, dst, ref, pathspec string, rmGitDir bool) (string, error) {
+func (r *Repository) Clone(ctx context.Context, dst, ref string, pathspecs []string, rmGitDir bool) (string, error) {
 	if ref == "" {
 		ref = "HEAD"
 	}
@@ -338,8 +338,9 @@ func (r *Repository) Clone(ctx context.Context, dst, ref, pathspec string, rmGit
 	}
 
 	args = []string{"checkout", "HEAD"}
-	if pathspec != "" {
-		args = append(args, "--", pathspec)
+	if len(pathspecs) > 0 {
+		args = append(args, "--")
+		args = append(args, pathspecs...)
 	}
 	// git checkout <branch> -- <pathspec>
 	if _, err := runGitCommand(ctx, r.log, nil, dst, args...); err != nil {
@@ -348,10 +349,7 @@ func (r *Repository) Clone(ctx context.Context, dst, ref, pathspec string, rmGit
 
 	// get the hash of the repos HEAD
 	args = []string{"log", "--pretty=format:%H", "-n", "1", "HEAD"}
-	if pathspec != "" {
-		args = append(args, "--", pathspec)
-	}
-	// git log --pretty=format:%H -n 1 HEAD [-- <path>]
+	// git log --pretty=format:%H -n 1 HEAD
 	hash, err := runGitCommand(ctx, r.log, nil, dst, args...)
 	if err != nil {
 		return "", err
