@@ -330,24 +330,14 @@ func (r *Repository) Clone(ctx context.Context, dst, ref, pathspec string, rmGit
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	if IsCommitHash(ref) {
-		return r.cloneByRef(ctx, dst, ref, pathspec, rmGitDir)
-	}
-	return r.cloneByBranch(ctx, dst, ref, pathspec, rmGitDir)
-}
-
-func (r *Repository) cloneByBranch(ctx context.Context, dst, branch, pathspec string, rmGitDir bool) (string, error) {
-	args := []string{"clone", "--no-checkout", "--single-branch"}
-	if branch != "HEAD" {
-		args = append(args, "-b", branch)
-	}
-	args = append(args, r.dir, dst)
-	// git clone --no-checkout --single-branch [-b <branch>] <remote> <dst>
+	// create a thin clone of a repository that only contains the history of the given revision
+	// git clone --no-checkout --revision <ref> <repo_src> <dst>
+	args := []string{"clone", "--no-checkout", "--revision", ref, r.dir, dst}
 	if _, err := runGitCommand(ctx, r.log, nil, "", args...); err != nil {
 		return "", err
 	}
 
-	args = []string{"checkout", branch}
+	args = []string{"checkout", "HEAD"}
 	if pathspec != "" {
 		args = append(args, "--", pathspec)
 	}
@@ -361,39 +351,6 @@ func (r *Repository) cloneByBranch(ctx context.Context, dst, branch, pathspec st
 	if pathspec != "" {
 		args = append(args, "--", pathspec)
 	}
-	// git log --pretty=format:%H -n 1 HEAD [-- <path>]
-	hash, err := runGitCommand(ctx, r.log, nil, dst, args...)
-	if err != nil {
-		return "", err
-	}
-
-	if rmGitDir {
-		if err := os.RemoveAll(filepath.Join(dst, ".git")); err != nil {
-			return "", fmt.Errorf("unable to delete git dir err:%w", err)
-		}
-	}
-
-	return hash, nil
-}
-
-func (r *Repository) cloneByRef(ctx context.Context, dst, ref, pathspec string, rmGitDir bool) (string, error) {
-	// git clone --no-checkout <remote> <dst>
-	if _, err := runGitCommand(ctx, r.log, nil, "", "clone", "--no-checkout", r.dir, dst); err != nil {
-		return "", err
-	}
-
-	args := []string{"reset", "--hard", ref}
-	// git reset --hard <ref>
-	if _, err := runGitCommand(ctx, r.log, nil, dst, args...); err != nil {
-		return "", err
-	}
-
-	// get the hash of the repos HEAD
-	args = []string{"log", "--pretty=format:%H", "-n", "1", "HEAD"}
-	if pathspec != "" {
-		args = append(args, "--", pathspec)
-	}
-
 	// git log --pretty=format:%H -n 1 HEAD [-- <path>]
 	hash, err := runGitCommand(ctx, r.log, nil, dst, args...)
 	if err != nil {
