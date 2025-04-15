@@ -3,7 +3,9 @@ FROM golang:1.24-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
-RUN apk --no-cache add git openssh-client
+# '--repository' flag used to install latest git v 2.49
+# can be removed once alpine is updated to 3.22
+RUN apk --no-cache add git openssh-client --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
