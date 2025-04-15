@@ -93,7 +93,7 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 				tempClone := mustTmpDir(t)
 				defer os.RemoveAll(tempClone)
 
-				if cloneSHA, err := repo.Clone(ctx, tempClone, testMainBranch, "", i%2 == 0); err != nil {
+				if cloneSHA, err := repo.Clone(ctx, tempClone, testMainBranch, nil, i%2 == 0); err != nil {
 					t.Fatalf("unexpected error %s", err)
 				} else {
 					if cloneSHA != fileSHA2 {
