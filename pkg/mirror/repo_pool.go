@@ -303,12 +303,12 @@ func (rp *RepoPool) ObjectExists(ctx context.Context, remote, obj string) error 
 }
 
 // Clone is wrapper around repositories Clone method
-func (rp *RepoPool) Clone(ctx context.Context, remote, dst, branch, pathspec string, rmGitDir bool) (string, error) {
+func (rp *RepoPool) Clone(ctx context.Context, remote, dst, branch string, pathspecs []string, rmGitDir bool) (string, error) {
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return "", err
 	}
-	return repo.Clone(ctx, dst, branch, pathspec, rmGitDir)
+	return repo.Clone(ctx, dst, branch, pathspecs, rmGitDir)
 }
 
 // MergeCommits is wrapper around repositories MergeCommits method

@@ -976,7 +976,7 @@ func Test_clone_branch(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA {
@@ -986,7 +986,7 @@ func Test_clone_branch(t *testing.T) {
 		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
 	}
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA {
@@ -998,9 +998,9 @@ func Test_clone_branch(t *testing.T) {
 
 	t.Log("TEST-2: forward HEAD and create other-branch")
 
-	remoteDir1SHA := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
+	mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
 	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
-	remoteDir2SHA := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-2")
+	mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-2")
 	remoteOtherSHA := mustCommit(t, upstream, "file", t.Name()+"-other-2")
 	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
 	remoteSHA2 := mustCommit(t, upstream, "file", t.Name()+"-main-2")
@@ -1011,7 +1011,7 @@ func Test_clone_branch(t *testing.T) {
 	}
 
 	// Clone other branch
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteOtherSHA {
@@ -1023,11 +1023,11 @@ func Test_clone_branch(t *testing.T) {
 	}
 
 	// Clone other branch with dir2 pathspec
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, "dir2", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, []string{"dir2"}, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
-		if cloneSHA != remoteDir2SHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir2SHA)
+		if cloneSHA != remoteOtherSHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
 		}
 		assertMissingFile(t, tempClone, "file")
 		assertMissingFile(t, filepath.Join(tempClone, "dir1"), "/file")
@@ -1035,7 +1035,7 @@ func Test_clone_branch(t *testing.T) {
 	}
 
 	// Clone main
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA2 {
@@ -1046,11 +1046,11 @@ func Test_clone_branch(t *testing.T) {
 	}
 
 	// Clone main
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, "dir1", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, []string{"dir1"}, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
-		if cloneSHA != remoteDir1SHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir1SHA)
+		if cloneSHA != remoteSHA2 {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
 		}
 		assertMissingFile(t, tempClone, "file")
 		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
@@ -1058,7 +1058,7 @@ func Test_clone_branch(t *testing.T) {
 	}
 
 	// Clone HEAD
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA2 {
@@ -1069,11 +1069,11 @@ func Test_clone_branch(t *testing.T) {
 	}
 
 	// Clone HEAD
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "dir1", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", []string{"dir1"}, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
-		if cloneSHA != remoteDir1SHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir1SHA)
+		if cloneSHA != remoteSHA2 {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
 		}
 		assertMissingFile(t, tempClone, "file")
 		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
@@ -1089,7 +1089,7 @@ func Test_clone_branch(t *testing.T) {
 		t.Fatalf("unable to mirror error: %v", err)
 	}
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, "", true); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, nil, true); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA {
@@ -1100,7 +1100,7 @@ func Test_clone_branch(t *testing.T) {
 		assertMissingFile(t, tempClone, ".git")
 	}
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", "", true); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", nil, true); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA {
@@ -1113,11 +1113,11 @@ func Test_clone_branch(t *testing.T) {
 
 	// we still have other branch
 	// Clone other branch with dir2 pathspec
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, "dir1", true); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, []string{"dir1"}, true); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
-		if cloneSHA != remoteDir1SHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir1SHA)
+		if cloneSHA != remoteOtherSHA {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
 		}
 		assertMissingFile(t, tempClone, "file")
 		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
@@ -1133,7 +1133,7 @@ func Test_clone_branch(t *testing.T) {
 		t.Fatalf("unable to mirror error: %v", err)
 	}
 
-	if _, err := repo.Clone(txtCtx, tempClone, otherBranch, "", true); err == nil {
+	if _, err := repo.Clone(txtCtx, tempClone, otherBranch, nil, true); err == nil {
 		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
 	}
 }
@@ -1159,7 +1159,7 @@ func Test_clone_tag_sha(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != sha {
@@ -1169,7 +1169,7 @@ func Test_clone_tag_sha(t *testing.T) {
 		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
 	}
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != sha {
@@ -1181,7 +1181,7 @@ func Test_clone_tag_sha(t *testing.T) {
 
 	t.Log("TEST-2: forward HEAD and create other-branch")
 
-	remoteDir1SHA := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
+	mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
 	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
 	remoteDir2SHA := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-2")
 	remoteOtherSHA := mustCommit(t, upstream, "file", t.Name()+"-other-2")
@@ -1195,7 +1195,7 @@ func Test_clone_tag_sha(t *testing.T) {
 	}
 
 	// Clone sha without path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteOtherSHA, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteOtherSHA, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteOtherSHA {
@@ -1207,7 +1207,7 @@ func Test_clone_tag_sha(t *testing.T) {
 	}
 
 	// Clone sha with path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteDir2SHA, "dir2", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteDir2SHA, []string{"dir2"}, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteDir2SHA {
@@ -1217,7 +1217,7 @@ func Test_clone_tag_sha(t *testing.T) {
 	}
 
 	// Clone tag without path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != remoteSHA2 {
@@ -1228,11 +1228,11 @@ func Test_clone_tag_sha(t *testing.T) {
 	}
 
 	// Clone tag with path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "dir1", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, []string{"dir1"}, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
-		if cloneSHA != remoteDir1SHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir1SHA)
+		if cloneSHA != remoteSHA2 {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
 		}
 		assertMissingFile(t, tempClone, "file")
 		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
@@ -1249,7 +1249,7 @@ func Test_clone_tag_sha(t *testing.T) {
 		t.Fatalf("unable to mirror error: %v", err)
 	}
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != sha {
@@ -1259,7 +1259,7 @@ func Test_clone_tag_sha(t *testing.T) {
 		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
 	}
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, "", false); err != nil {
+	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != sha {
@@ -1401,7 +1401,7 @@ func Test_RepoPool_Success(t *testing.T) {
 	assertLinkedFile(t, root, "link1", "file", t.Name()+"-u1-main-1")
 	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-1")
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != fileU1SHA1 {
@@ -1410,7 +1410,7 @@ func Test_RepoPool_Success(t *testing.T) {
 		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u1-main-1")
 	}
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != fileU2SHA1 {
@@ -1451,7 +1451,7 @@ func Test_RepoPool_Success(t *testing.T) {
 	assertLinkedFile(t, root, "link3", "file", t.Name()+"-u1-main-2")
 	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-2")
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != fileU1SHA2 {
@@ -1460,7 +1460,7 @@ func Test_RepoPool_Success(t *testing.T) {
 		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u1-main-2")
 	}
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != fileU2SHA2 {
@@ -1500,7 +1500,7 @@ func Test_RepoPool_Success(t *testing.T) {
 	}
 	assertMissingLink(t, root, "link2")
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != fileU1SHA1 {
@@ -1509,7 +1509,7 @@ func Test_RepoPool_Success(t *testing.T) {
 		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u1-main-1")
 	}
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, "", false); err != nil {
+	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, nil, false); err != nil {
 		t.Fatalf("unexpected error %s", err)
 	} else {
 		if cloneSHA != fileU2SHA1 {
@@ -1620,7 +1620,7 @@ func Test_RepoPool_Error(t *testing.T) {
 	} else if err != ErrNotExist {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
 	}
-	if _, err := rp.Clone(context.Background(), nonExistingRemote, testTmpDir, "HEAD", "", false); err == nil {
+	if _, err := rp.Clone(context.Background(), nonExistingRemote, testTmpDir, "HEAD", nil, false); err == nil {
 		t.Errorf("unexpected success for non existing repo")
 	} else if err != ErrNotExist {
 		t.Errorf("error mismatch got:%s want:%s", err, ErrNotExist)
