@@ -18,7 +18,7 @@ import (
 
 const (
 	defaultGitGC             = "always"
-	defaultInterval          = 30 * time.Second
+	defaultInterval          = time.Minute
 	defaultMirrorTimeout     = 2 * time.Minute
 	defaultSSHKeyPath        = "/etc/git-secret/ssh"
 	defaultSSHKnownHostsPath = "/etc/git-secret/known_hosts"
