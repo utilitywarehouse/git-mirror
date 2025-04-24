@@ -200,7 +200,7 @@ func runGitCommand(ctx context.Context, log *slog.Logger, envs []string, cwd str
 	log.Log(ctx, -8, "running command", "cwd", cwd, "cmd", cmdStr)
 
 	cmd := exec.CommandContext(ctx, gitExecutablePath, args...)
-	// force kill git 5 seconds after sending it sigterm
+	// force kill git & child process 5 seconds after sending it sigterm (when ctx is cancelled/timed out)
 	cmd.WaitDelay = 5 * time.Second
 	if cwd != "" {
 		cmd.Dir = cwd
