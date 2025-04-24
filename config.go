@@ -19,7 +19,7 @@ import (
 const (
 	defaultGitGC             = "always"
 	defaultInterval          = time.Minute
-	defaultMirrorTimeout     = 2 * time.Minute
+	defaultMirrorTimeout     = 4 * time.Minute // git operations can be delayed by server when rate limited
 	defaultSSHKeyPath        = "/etc/git-secret/ssh"
 	defaultSSHKnownHostsPath = "/etc/git-secret/known_hosts"
 )
