@@ -398,9 +398,6 @@ func (r *Repository) StartLoop(ctx context.Context) {
 		mCtx, cancel := context.WithTimeout(ctx, r.mirrorTimeout)
 		err := r.Mirror(mCtx)
 		cancel()
-		if err != nil {
-			r.log.Error("repository mirror failed", "err", err)
-		}
 		recordGitMirror(r.gitURL.Repo, err == nil)
 
 		t := time.NewTimer(jitter(r.interval, 0.2))
