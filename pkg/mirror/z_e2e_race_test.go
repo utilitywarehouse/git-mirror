@@ -5,7 +5,10 @@ package mirror
 import (
 	"context"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -61,7 +64,6 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 				defer wg.Done()
 				if err := repo.Mirror(ctx); err != nil {
 					t.Error("unable to mirror", "err", err)
-					os.Exit(1)
 				}
 
 				assertLinkedFile(t, root, link1, "file", testName+"-2")
@@ -83,7 +85,6 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 				defer wg.Done()
 				if err := repo.Mirror(ctx); err != nil {
 					t.Error("unable to mirror error", "err", err)
-					os.Exit(1)
 				}
 			}()
 
@@ -94,7 +95,7 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 				defer os.RemoveAll(tempClone)
 
 				if cloneSHA, err := repo.Clone(ctx, tempClone, testMainBranch, nil, i%2 == 0); err != nil {
-					t.Fatalf("unexpected error %s", err)
+					t.Errorf("unexpected error %s", err)
 				} else {
 					if cloneSHA != fileSHA2 {
 						t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, fileSHA2)
@@ -106,6 +107,138 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 		wg.Wait()
 	})
 
+}
+
+func Test_mirror_detect_race_slow_fetch(t *testing.T) {
+	// replace global git path with slower git wrapper script
+	cwd, _ := os.Getwd()
+	gitExecutablePath = exec.Command(path.Join(cwd, "z_git_slow_fetch.sh")).String()
+
+	testTmpDir := mustTmpDir(t)
+	defer os.RemoveAll(testTmpDir)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
+	root := filepath.Join(testTmpDir, testRoot)
+
+	testName := t.Name()
+
+	t.Log("TEST-1: init upstream")
+	fileSHA1 := mustInitRepo(t, upstream, "file", testName+"-1")
+
+	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
+	repo.mirrorTimeout = 2 * time.Minute
+
+	// verify checkout files
+	assertCommitLog(t, repo, "HEAD", "", fileSHA1, testName+"-1", []string{"file"})
+
+	// start mirror loop
+	go repo.StartLoop(ctx)
+	close(repo.stop)
+
+	t.Run("slow-fetch-without-timeout", func(t *testing.T) {
+
+		// all following assertions will always be true
+		// this test is about testing deadlocks and detecting race conditions
+		// due to background ctx following  assertions should always succeed
+		for range 3 {
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := repo.Mirror(ctx); err != nil {
+					t.Error("unable to mirror error", "err", err)
+				}
+			}()
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				ctx := context.Background()
+
+				time.Sleep(time.Second) // wait for repo.Mirror to grab lock
+
+				gotHash, err := repo.Hash(ctx, "HEAD", "")
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				} else if gotHash != fileSHA1 {
+					t.Errorf("ref '%s' on path '%s' SHA mismatch got:%s want:%s", "HEAD", "", gotHash, fileSHA1)
+				}
+
+				if got, err := repo.Subject(ctx, fileSHA1); err != nil {
+					t.Errorf("unexpected error: %v", err)
+				} else if got != testName+"-1" {
+					t.Errorf("subject mismatch sha:%s got:%s want:%s", gotHash, got, testName+"-1")
+				}
+
+				if got, err := repo.ChangedFiles(ctx, fileSHA1); err != nil {
+					t.Errorf("unexpected error: %v", err)
+				} else if slices.Compare(got, []string{"file"}) != 0 {
+					t.Errorf("changed file mismatch sha:%s got:%s want:%s", gotHash, got, []string{"file"})
+				}
+			}()
+			wg.Wait()
+		}
+	})
+
+	t.Run("slow-fetch-with-client-timeout", func(t *testing.T) {
+		// all following assertions will always be true
+		// this test is about testing deadlocks and detecting race conditions
+		// due to shorter ctx timeout Hash, Subject and ChangedFiles should always fail
+		for range 3 {
+			wg := &sync.WaitGroup{}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if err := repo.Mirror(ctx); err != nil {
+					t.Error("unable to mirror error", "err", err)
+				}
+			}()
+
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				time.Sleep(time.Second) // wait for repo.Mirror to grab lock
+
+				ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
+				if _, err := repo.Hash(ctx1, "HEAD", ""); err == nil {
+					t.Errorf("error was expected due to sorter timeout")
+				}
+
+				ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+				if _, err := repo.Subject(ctx2, fileSHA1); err == nil {
+					t.Errorf("error was expected due to sorter timeout")
+				}
+
+				ctx3, cancel3 := context.WithTimeout(context.Background(), 5*time.Second)
+				if _, err := repo.ChangedFiles(ctx3, fileSHA1); err == nil {
+					t.Errorf("error was expected due to sorter timeout")
+				}
+
+				cancel1()
+				cancel2()
+				cancel3()
+			}()
+			wg.Wait()
+		}
+	})
+
+	t.Run("slow-fetch-with-mirror-timeout", func(t *testing.T) {
+		for range 3 {
+			ctx1, cancel1 := context.WithTimeout(context.Background(), 5*time.Second)
+
+			start := time.Now()
+			repo.Mirror(ctx1)
+			// 5s timeout + 5s waitDelay + 2s buffer
+			if time.Since(start) > (5+5+2)*time.Second {
+				t.Errorf("error: mirror function should have existed after ctx timeout but it took %s", time.Since(start))
+			}
+			cancel1()
+		}
+	})
 }
 
 func Test_mirror_detect_race_repo_pool(t *testing.T) {
@@ -146,6 +279,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 				t.Log("adding remote1", "count", i)
 				readStopped := make(chan bool)
 				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
 
 				newConfig := RepoPoolConfig{
 					Defaults: DefaultConfig{
@@ -215,6 +349,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 				t.Log("adding remote2", "count", i)
 				readStopped := make(chan bool)
 				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
 
 				newConfig := RepoPoolConfig{
 					Defaults: DefaultConfig{

@@ -187,9 +187,31 @@ func (r *Repository) WorktreeLinks() map[string]*WorkTreeLink {
 	return maps.Clone(r.workTreeLinks)
 }
 
+// tryRLockWithContext will try to get read lock on the repository while
+// monitoring given context. If context is done before acquiring read lock
+// it will return an error
+// this is needed because mirror() can take minutes to release lock and if
+// given ctx has short timeout next call will fail anyway.
+func (r *Repository) tryRLockWithContext(ctx context.Context) error {
+	for {
+		if r.lock.TryRLock() {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err() // Timeout or cancellation
+		default:
+			time.Sleep(time.Second)
+		}
+	}
+}
+
 // Hash returns the hash of the given revision and for the path if specified.
 func (r *Repository) Hash(ctx context.Context, ref, path string) (string, error) {
-	r.lock.RLock()
+	if err := r.tryRLockWithContext(ctx); err != nil {
+		return "", err
+	}
 	defer r.lock.RUnlock()
 
 	return r.hash(ctx, ref, path)
@@ -197,7 +219,9 @@ func (r *Repository) Hash(ctx context.Context, ref, path string) (string, error)
 
 // Subject returns commit subject of given commit hash
 func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
-	r.lock.RLock()
+	if err := r.tryRLockWithContext(ctx); err != nil {
+		return "", err
+	}
 	defer r.lock.RUnlock()
 
 	args := []string{"show", `--no-patch`, `--format=%s`, hash}
@@ -210,7 +234,9 @@ func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
 
 // ChangedFiles returns path of the changed files for given commit hash
 func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, error) {
-	r.lock.RLock()
+	if err := r.tryRLockWithContext(ctx); err != nil {
+		return nil, err
+	}
 	defer r.lock.RUnlock()
 
 	args := []string{"show", `--name-only`, `--pretty=format:`, hash}
@@ -242,7 +268,9 @@ func (r *Repository) BranchCommits(ctx context.Context, branch string) ([]Commit
 // list all the commits and files which are reachable from 'ref2', but not from 'ref1'
 // The output is given in reverse chronological order.
 func (r *Repository) ListCommitsWithChangedFiles(ctx context.Context, ref1, ref2 string) ([]CommitInfo, error) {
-	r.lock.RLock()
+	if err := r.tryRLockWithContext(ctx); err != nil {
+		return nil, err
+	}
 	defer r.lock.RUnlock()
 
 	args := []string{"log", `--name-only`, `--pretty=format:%H`, ref1 + ".." + ref2}
@@ -288,7 +316,9 @@ func ParseCommitWithChangedFilesList(output string) []CommitInfo {
 
 // ObjectExists returns error is given object is not valid or if it doesn't exists
 func (r *Repository) ObjectExists(ctx context.Context, obj string) error {
-	r.lock.RLock()
+	if err := r.tryRLockWithContext(ctx); err != nil {
+		return err
+	}
 	defer r.lock.RUnlock()
 
 	args := []string{"cat-file", `-e`, obj}
@@ -327,7 +357,9 @@ func (r *Repository) Clone(ctx context.Context, dst, ref string, pathspecs []str
 		}
 	}
 
-	r.lock.RLock()
+	if err := r.tryRLockWithContext(ctx); err != nil {
+		return "", err
+	}
 	defer r.lock.RUnlock()
 
 	// create a thin clone of a repository that only contains the history of the given revision
