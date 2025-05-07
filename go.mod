@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/go-jose/go-jose/v4 v4.1.0
 	github.com/google/go-cmp v0.7.0
-	github.com/prometheus/client_golang v1.21.1
+	github.com/prometheus/client_golang v1.22.0
 	github.com/sasha-s/go-deadlock v0.3.5
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -13,7 +13,6 @@ require (
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/petermattis/goid v0.0.0-20250303134427-723919f7f203 // indirect
