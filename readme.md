@@ -11,7 +11,7 @@ will be directly mirrored into `refs/*` in the local repository.
 The implementation borrows heavily from [kubernetes/git-sync](https://github.com/kubernetes/git-sync).
 If you want to sync single repository on one reference then you are probably better off
 with [kubernetes/git-sync](https://github.com/kubernetes/git-sync), as it provides
-a lot more customisation. 
+a lot more customisation.
 `git-mirror` should be used if multiple mirrored repositories with multiple checked out branches (worktrees) is required.
 
 ## Usage
@@ -28,6 +28,7 @@ GLOBAL OPTIONS:
 ```
 
 ## Config
+
 configuration file contains `default` parameters and list of repositories.
 each repository also contains list of worktrees to checkout.
 `defaults` fields values are used if repository parameters are not specified.
@@ -45,7 +46,7 @@ defaults:
   # and it will be placed in this dir
   # if not specified it will be same as root
   link_root: /app/links
-  
+
   # interval is time duration for how long to wait between mirrors. (default: '30s')
   interval: 30s
 
@@ -58,13 +59,27 @@ defaults:
 
   # auth config to fetch remote repos
   auth:
+	  # username to use for basic or token based authentication
+    username: bob
+	  # password or personal access token to use for authentication
+    password: P@ssw0rd
+
+    # SSH Details
     # path to the ssh key & known hosts used to fetch remote
     ssh_key_path: /etc/git-secret/ssh
     ssh_known_hosts_path: /etc/git-secret/known_hosts
+
+    # Github APP Details
+    # The application id or the client ID of the Github app
+    github_app_id: 1234567
+    # The installation id of the app (in the organization).
+    github_app_installation_id: 89012345
+    # path to the github app private key
+    github_app_private_key_path: /org/key.pem
 repositories:
     # remote is the git URL of the remote repository to mirror.
-    # supported urls are 'git@host.xz:org/repo.git','ssh://git@host.xz/org/repo.git'
-    # or 'https://host.xz/org/repo.git'. '.git' suffix is optional
+    # supported urls are 'git@host.com:org/repo.git','ssh://git@host.com/org/repo.git'
+    # or 'https://host.com/org/repo.git'. '.git' suffix is optional
   - remote: https://github.com/utilitywarehouse/git-mirror # required
 
     # following fields are optional.
@@ -90,14 +105,29 @@ repositories:
 
         # pathspecs is the pattern used to checkout paths in Git commands.
         # its optional, if omitted whole repo will be checked out
-        pathspecs: 
+        pathspecs:
           - path
           - path2/*.yaml
 ```
+
 For more details about `pathspecs`, see [git glossary](https://git-scm.com/docs/gitglossary#Documentation/gitglossary.txt-aiddefpathspecapathspec)
 
-App can load changes in config without restart. At repository level only 
-adding and removing repository is supported. changes in interval, timeout 
-and auth will require an app restart. 
+App can load changes in config without restart. At repository level only
+adding and removing repository is supported. changes in interval, timeout
+and auth will require an app restart.
 At worktree level apart from adding or removing, changes in existing worktree's
 link, ref and pathspecs is supported.
+
+## Authentication
+
+git-mirror selects authentication method based on `remote` url protocol.
+
+- for `scp` _(user@host.com:org/repo.git)_ and `ssh` _(ssh://user@host.com/org/repo.git)_ remote
+
+  1. only SSH keys will be used
+
+- for `https` _(https://host.com/org/repo.git)_ remote
+  1. username and password will be used if set
+  2. if only password is set it will be used. (token based auth)
+  3. if Github App details are set access token will be fetched and used for repository
+  4. if none of the above is set then it will try fetching repo without auth (public repository)

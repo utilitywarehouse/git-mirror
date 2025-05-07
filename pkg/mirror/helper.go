@@ -210,6 +210,9 @@ func runGitCommand(ctx context.Context, log *slog.Logger, envs []string, cwd str
 	cmd.Stdout = outbuf
 	cmd.Stderr = errbuf
 
+	// If Env is nil, the new process uses the current process's environment.
+	cmd.Env = []string{}
+
 	if len(envs) > 0 {
 		cmd.Env = append(cmd.Env, envs...)
 	}

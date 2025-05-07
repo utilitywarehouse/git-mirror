@@ -69,6 +69,9 @@ type Repository struct {
 	workTreeLinks map[string]*WorkTreeLink // list of worktrees which will be maintained
 	stop, stopped chan bool                // chans to stop mirror loops
 	log           *slog.Logger
+
+	githubAppToken          string
+	githubAppTokenExpiresAt time.Time
 }
 
 // NewRepository creates new repository from the given config.
@@ -615,10 +618,7 @@ func (r *Repository) init(ctx context.Context) error {
 // getRemoteDefaultBranch will run ls-remote to get HEAD of the remote
 // and parse output to get default branch name
 func (r *Repository) getRemoteDefaultBranch(ctx context.Context) (string, error) {
-	envs := []string{}
-	if giturl.IsSCPURL(r.remote) || giturl.IsSSHURL(r.remote) {
-		envs = append(envs, r.auth.gitSSHCommand())
-	}
+	envs := r.authEnv(ctx)
 
 	// git ls-remote --symref origin HEAD
 	out, err := runGitCommand(ctx, r.log, envs, r.dir, "ls-remote", "--symref", "origin", "HEAD")
@@ -707,10 +707,7 @@ func (r *Repository) fetch(ctx context.Context) ([]string, error) {
 	// do not use -v output it will print all refs
 	args := []string{"fetch", "origin", "--prune", "--no-progress", "--porcelain", "--no-auto-gc"}
 
-	envs := []string{}
-	if giturl.IsSCPURL(r.remote) || giturl.IsSSHURL(r.remote) {
-		envs = append(envs, r.auth.gitSSHCommand())
-	}
+	envs := r.authEnv(ctx)
 
 	// git fetch origin --prune --no-progress --no-auto-gc
 	out, err := runGitCommand(ctx, r.log, envs, r.dir, args...)

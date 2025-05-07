@@ -17,14 +17,16 @@ func TestRepoPoolConfig_validateDefaults(t *testing.T) {
 		wantErr bool
 	}{
 		{"empty", args{dc: DefaultConfig{}}, false},
-		{"valid", args{dc: DefaultConfig{"/root", "", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, false},
-		{"valid_with_link_root", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, false},
-		{"invalid_root", args{dc: DefaultConfig{"root", "", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
-		{"invalid_link_root", args{dc: DefaultConfig{"/root", "link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
-		{"invalid_interval", args{dc: DefaultConfig{"/root", "/link_root", time.Millisecond, 2 * time.Second, "always", Auth{"/path/to/key", "/host"}}}, true},
-		{"invalid_timeout", args{dc: DefaultConfig{"/root", "/link_root", time.Second, time.Millisecond, "always", Auth{"/path/to/key", "/host"}}}, true},
-		{"valid_gc", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "", Auth{"/path/to/key", "/host"}}}, false},
-		{"invalid_gc", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "blah", Auth{"/path/to/key", "/host"}}}, true},
+		{"valid", args{dc: DefaultConfig{"/root", "", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, false},
+		{"valid_with_link_root", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, false},
+		{"invalid_root", args{dc: DefaultConfig{"root", "", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, true},
+		{"invalid_link_root", args{dc: DefaultConfig{"/root", "link_root", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, true},
+		{"invalid_interval", args{dc: DefaultConfig{"/root", "/link_root", time.Millisecond, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, true},
+		{"invalid_timeout", args{dc: DefaultConfig{"/root", "/link_root", time.Second, time.Millisecond, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, true},
+		{"valid_gc", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, false},
+		{"invalid_gc", args{dc: DefaultConfig{"/root", "/link_root", time.Second, 2 * time.Second, "blah", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"}}}, true},
+		{"valid_gh_app", args{dc: DefaultConfig{"/root", "", time.Second, 2 * time.Second, "always", Auth{GithubAppID: "12", GithubAppInstallationID: "34", GithubAppPrivateKeyPath: "/path/to/key"}}}, false},
+		{"invalid_gh_app", args{dc: DefaultConfig{"/root", "", time.Second, 2 * time.Second, "always", Auth{GithubAppID: "12", GithubAppPrivateKeyPath: "/path/to/key"}}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -50,7 +52,7 @@ func TestRepoPoolConfig_applyDefaults(t *testing.T) {
 		{"all_def",
 			RepoPoolConfig{
 				Defaults: DefaultConfig{
-					"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+					"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"},
 				},
 				Repositories: []RepositoryConfig{
 					{Remote: "user@host.xz:path/to/repo1.git"},
@@ -68,7 +70,7 @@ func TestRepoPoolConfig_applyDefaults(t *testing.T) {
 			},
 			RepoPoolConfig{
 				Defaults: DefaultConfig{
-					"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+					"/root", "/link_root", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"},
 				},
 				Repositories: []RepositoryConfig{
 					{
@@ -103,7 +105,7 @@ func TestRepoPoolConfig_applyDefaults(t *testing.T) {
 		{"no_link_root_def",
 			RepoPoolConfig{
 				Defaults: DefaultConfig{
-					"/root", "", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+					"/root", "", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"},
 				},
 				Repositories: []RepositoryConfig{
 					{Remote: "user@host.xz:path/to/repo1.git"},
@@ -111,7 +113,7 @@ func TestRepoPoolConfig_applyDefaults(t *testing.T) {
 			},
 			RepoPoolConfig{
 				Defaults: DefaultConfig{
-					"/root", "/root", time.Second, 2 * time.Second, "always", Auth{"/path/to/key", "/host"},
+					"/root", "/root", time.Second, 2 * time.Second, "always", Auth{SSHKeyPath: "/path/to/key", SSHKnownHostsPath: "/host"},
 				},
 				Repositories: []RepositoryConfig{
 					{
@@ -412,11 +414,13 @@ func TestAuth_gitSSHCommand(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := Auth{
-				SSHKeyPath:        tt.fields.SSHKeyPath,
-				SSHKnownHostsPath: tt.fields.SSHKnownHostsPath,
+			r := Repository{
+				auth: &Auth{
+					SSHKeyPath:        tt.fields.SSHKeyPath,
+					SSHKnownHostsPath: tt.fields.SSHKnownHostsPath,
+				},
 			}
-			if got := a.gitSSHCommand(); got != tt.want {
+			if got := r.gitSSHCommand(); got != tt.want {
 				t.Errorf("Auth.gitSSHCommand() = %v, want %v", got, tt.want)
 			}
 		})
