@@ -103,11 +103,26 @@ type WorktreeConfig struct {
 
 // Auth represents authentication config of the repository
 type Auth struct {
+	// username to use for basic or token based authentication
+	Username string `yaml:"username"`
+
+	// password or personal access token to use for authentication
+	Password string `yaml:"password"`
+
+	// SSH Details
 	// path to the ssh key used to fetch remote
 	SSHKeyPath string `yaml:"ssh_key_path"`
 
 	// path to the known hosts of the remote host
 	SSHKnownHostsPath string `yaml:"ssh_known_hosts_path"`
+
+	// Github APP Details
+	// The application id or the client ID of the Github app
+	GithubAppID string `yaml:"github_app_id"`
+	// The installation id of the app (in the organization).
+	GithubAppInstallationID string `yaml:"github_app_installation_id"`
+	// path to the github app private key
+	GithubAppPrivateKeyPath string `yaml:"github_app_private_key_path"`
 }
 
 // validateDefaults will verify default config
@@ -139,6 +154,18 @@ func (rpc *RepoPoolConfig) validateDefaults() error {
 			errs = append(errs, fmt.Errorf("provided mirroring timeout is too sort (%s), must be > %s", dc.Interval, minAllowedInterval))
 		}
 	}
+
+	// if any of the github app config is set all should be set
+	if dc.Auth.GithubAppID != "" ||
+		dc.Auth.GithubAppInstallationID != "" ||
+		dc.Auth.GithubAppPrivateKeyPath != "" {
+		if dc.Auth.GithubAppID == "" ||
+			dc.Auth.GithubAppInstallationID == "" ||
+			dc.Auth.GithubAppPrivateKeyPath == "" {
+			errs = append(errs, fmt.Errorf("all of the Github app attribute is required"))
+		}
+	}
+
 	switch dc.GitGC {
 	case "":
 	case gcAuto, gcAlways, gcAggressive, gcOff:
@@ -289,18 +316,4 @@ func (conf *RepoPoolConfig) ValidateAndApplyDefaults() error {
 	}
 
 	return nil
-}
-
-// gitSSHCommand returns the environment variable to be used for configuring
-// git over ssh.
-func (a Auth) gitSSHCommand() string {
-	sshKeyPath := a.SSHKeyPath
-	if sshKeyPath == "" {
-		sshKeyPath = "/dev/null"
-	}
-	knownHostsOptions := "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
-	if a.SSHKeyPath != "" && a.SSHKnownHostsPath != "" {
-		knownHostsOptions = fmt.Sprintf("-o UserKnownHostsFile=%s", a.SSHKnownHostsPath)
-	}
-	return fmt.Sprintf(`GIT_SSH_COMMAND=ssh -q -F none -o IdentitiesOnly=yes -o IdentityFile=%s %s`, sshKeyPath, knownHostsOptions)
 }
