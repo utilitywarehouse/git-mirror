@@ -59,9 +59,9 @@ defaults:
 
   # auth config to fetch remote repos
   auth:
-	  # username to use for basic or token based authentication
+    # username to use for basic or token based authentication
     username: bob
-	  # password or personal access token to use for authentication
+    # password or personal access token to use for authentication
     password: P@ssw0rd
 
     # SSH Details
@@ -77,9 +77,9 @@ defaults:
     # path to the github app private key
     github_app_private_key_path: /org/key.pem
 repositories:
-    # remote is the git URL of the remote repository to mirror.
-    # supported urls are 'git@host.com:org/repo.git','ssh://git@host.com/org/repo.git'
-    # or 'https://host.com/org/repo.git'. '.git' suffix is optional
+  # remote is the git URL of the remote repository to mirror.
+  # supported urls are 'git@host.com:org/repo.git','ssh://git@host.com/org/repo.git'
+  # or 'https://host.com/org/repo.git'. '.git' suffix is optional
   - remote: https://github.com/utilitywarehouse/git-mirror # required
 
     # following fields are optional.
