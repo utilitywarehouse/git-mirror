@@ -26,6 +26,7 @@ type GithubAppToken struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
+// GithubAppInstallationToken will create new token for given Github APP
 func GithubAppInstallationToken(ctx context.Context,
 	appID, installationID, privateKeyPath string, reqPerms GithubAppTokenReqPermissions,
 ) (*GithubAppToken, error) {

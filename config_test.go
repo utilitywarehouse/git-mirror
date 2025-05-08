@@ -7,28 +7,29 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
+	"github.com/utilitywarehouse/git-mirror/repopool"
+	"github.com/utilitywarehouse/git-mirror/repository"
 )
 
 func Test_diffRepositories(t *testing.T) {
 	tests := []struct {
 		name             string
-		initialConfig    *mirror.RepoPoolConfig
-		newConfig        *mirror.RepoPoolConfig
-		wantNewRepos     []mirror.RepositoryConfig
+		initialConfig    *repopool.Config
+		newConfig        *repopool.Config
+		wantNewRepos     []repository.Config
 		wantRemovedRepos []string
 	}{
 		{
 			name:          "empty",
-			initialConfig: &mirror.RepoPoolConfig{},
-			newConfig: &mirror.RepoPoolConfig{
-				Defaults: mirror.DefaultConfig{Root: "/root"},
-				Repositories: []mirror.RepositoryConfig{
+			initialConfig: &repopool.Config{},
+			newConfig: &repopool.Config{
+				Defaults: repopool.DefaultConfig{Root: "/root"},
+				Repositories: []repository.Config{
 					{Remote: "user@host.xz:path/to/repo1.git"},
 					{Remote: "user@host.xz:path/to/repo2.git"},
 				},
 			},
-			wantNewRepos: []mirror.RepositoryConfig{
+			wantNewRepos: []repository.Config{
 				{Remote: "user@host.xz:path/to/repo1.git"},
 				{Remote: "user@host.xz:path/to/repo2.git"},
 			},
@@ -36,16 +37,16 @@ func Test_diffRepositories(t *testing.T) {
 		},
 		{
 			name: "replace_repo2_repo3",
-			initialConfig: &mirror.RepoPoolConfig{
-				Defaults: mirror.DefaultConfig{Root: "/root", Interval: 10 * time.Second},
-				Repositories: []mirror.RepositoryConfig{
+			initialConfig: &repopool.Config{
+				Defaults: repopool.DefaultConfig{Root: "/root", Interval: 10 * time.Second},
+				Repositories: []repository.Config{
 					{Remote: "user@host.xz:path/to/repo1.git"},
 					{Remote: "user@host.xz:path/to/repo2.git"},
 				},
 			},
-			newConfig: &mirror.RepoPoolConfig{
-				Defaults: mirror.DefaultConfig{Root: "/root"},
-				Repositories: []mirror.RepositoryConfig{
+			newConfig: &repopool.Config{
+				Defaults: repopool.DefaultConfig{Root: "/root"},
+				Repositories: []repository.Config{
 					{Remote: "user@host.xz:path/to/repo1.git"},
 					{
 						Remote:        "user@host.xz:path/to/repo3.git",
@@ -53,18 +54,18 @@ func Test_diffRepositories(t *testing.T) {
 						Interval:      2 * time.Second,
 						MirrorTimeout: 4 * time.Second,
 						GitGC:         "off",
-						Auth:          mirror.Auth{SSHKeyPath: "/another/path/to/key"},
+						Auth:          repository.Auth{SSHKeyPath: "/another/path/to/key"},
 					},
 				},
 			},
-			wantNewRepos: []mirror.RepositoryConfig{
+			wantNewRepos: []repository.Config{
 				{
 					Remote:        "user@host.xz:path/to/repo3.git",
 					Root:          "/another-root",
 					Interval:      2 * time.Second,
 					MirrorTimeout: 4 * time.Second,
 					GitGC:         "off",
-					Auth:          mirror.Auth{SSHKeyPath: "/another/path/to/key"},
+					Auth:          repository.Auth{SSHKeyPath: "/another/path/to/key"},
 				},
 			},
 			wantRemovedRepos: []string{"user@host.xz:path/to/repo2.git"},
@@ -73,7 +74,7 @@ func Test_diffRepositories(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			applyGitDefaults(tt.initialConfig)
-			repoPool, err := mirror.NewRepoPool(t.Context(), *tt.initialConfig, nil, nil)
+			repoPool, err := repopool.New(t.Context(), *tt.initialConfig, nil, nil)
 			if err != nil {
 				t.Fatalf("could not create git mirror pool err:%v", err)
 			}
@@ -92,27 +93,27 @@ func Test_diffRepositories(t *testing.T) {
 func Test_diffWorktrees(t *testing.T) {
 	tests := []struct {
 		name            string
-		initialRepoConf *mirror.RepositoryConfig
-		newRepoConf     *mirror.RepositoryConfig
-		wantNewWTCs     []mirror.WorktreeConfig
+		initialRepoConf *repository.Config
+		newRepoConf     *repository.Config
+		wantNewWTCs     []repository.WorktreeConfig
 		wantRemovedWTs  []string
 	}{
 		{
 			name: "no_worktree",
-			initialRepoConf: &mirror.RepositoryConfig{
+			initialRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
 			},
-			newRepoConf: &mirror.RepositoryConfig{
+			newRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
-				Worktrees: []mirror.WorktreeConfig{
+				Worktrees: []repository.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
 					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 					{Link: "", Ref: "master", Pathspecs: nil},
 				},
 			},
-			wantNewWTCs: []mirror.WorktreeConfig{
+			wantNewWTCs: []repository.WorktreeConfig{
 				{Link: "", Ref: "master", Pathspecs: nil},
 				{Link: "link", Ref: "master"},
 				{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
@@ -121,27 +122,27 @@ func Test_diffWorktrees(t *testing.T) {
 		},
 		{
 			name: "replace_link_ref_path",
-			initialRepoConf: &mirror.RepositoryConfig{
+			initialRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
-				Worktrees: []mirror.WorktreeConfig{
+				Worktrees: []repository.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
 					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path"}},
 					{Link: "", Ref: "master", Pathspecs: nil},
 				},
 			},
-			newRepoConf: &mirror.RepositoryConfig{
+			newRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
-				Worktrees: []mirror.WorktreeConfig{
+				Worktrees: []repository.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: []string{"new-path"}},
 					{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path", "new-path"}},
 					{Link: "", Ref: "new-branch", Pathspecs: nil},
 				},
 			},
-			wantNewWTCs: []mirror.WorktreeConfig{
+			wantNewWTCs: []repository.WorktreeConfig{
 				{Link: "", Ref: "new-branch", Pathspecs: nil},
 				{Link: "link", Ref: "master", Pathspecs: []string{"new-path"}},
 				{Link: "link2", Ref: "new-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
@@ -151,18 +152,18 @@ func Test_diffWorktrees(t *testing.T) {
 		},
 		{
 			name: "rearrange-path",
-			initialRepoConf: &mirror.RepositoryConfig{
+			initialRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
-				Worktrees: []mirror.WorktreeConfig{
+				Worktrees: []repository.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: []string{"a", "b/**/c"}},
 					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 				},
 			},
-			newRepoConf: &mirror.RepositoryConfig{
+			newRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
-				Worktrees: []mirror.WorktreeConfig{
+				Worktrees: []repository.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: []string{"b/**/c", "a"}},
 					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "*.c", "path2/**/*.yaml"}},
 				},
@@ -172,24 +173,24 @@ func Test_diffWorktrees(t *testing.T) {
 		},
 		{
 			name: "add_new_link",
-			initialRepoConf: &mirror.RepositoryConfig{
+			initialRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
-				Worktrees: []mirror.WorktreeConfig{
+				Worktrees: []repository.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
 					{Link: "link2", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 				},
 			},
-			newRepoConf: &mirror.RepositoryConfig{
+			newRepoConf: &repository.Config{
 				Remote: "user@host.xz:path/to/repo1.git",
 				Root:   "/root", Interval: 10 * time.Second, GitGC: "always",
-				Worktrees: []mirror.WorktreeConfig{
+				Worktrees: []repository.WorktreeConfig{
 					{Link: "link", Ref: "master", Pathspecs: nil},
 					{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 					{Link: "", Ref: "master", Pathspecs: nil},
 				},
 			},
-			wantNewWTCs: []mirror.WorktreeConfig{
+			wantNewWTCs: []repository.WorktreeConfig{
 				{Ref: "master"},
 				{Link: "link3", Ref: "other-branch", Pathspecs: []string{"path1", "path2/**/*.yaml", "*.c"}},
 			},
@@ -202,7 +203,7 @@ func Test_diffWorktrees(t *testing.T) {
 				t.Fatalf("failed to create repo error = %v", err)
 			}
 
-			repo, err := mirror.NewRepository(*tt.initialRepoConf, nil, slog.Default())
+			repo, err := repository.New(*tt.initialRepoConf, nil, slog.Default())
 			if err != nil {
 				t.Fatalf("failed to create repo error = %v", err)
 			}
@@ -211,7 +212,7 @@ func Test_diffWorktrees(t *testing.T) {
 
 			// since these slices are based on map of worktrees order of elements
 			// differs between runs
-			slices.SortFunc(gotNewWTCs, func(a, b mirror.WorktreeConfig) int {
+			slices.SortFunc(gotNewWTCs, func(a, b repository.WorktreeConfig) int {
 				switch {
 				case a.Link > b.Link:
 					return 1

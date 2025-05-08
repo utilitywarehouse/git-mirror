@@ -1,4 +1,4 @@
-package mirror
+package repository
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"path/filepath"
 	"slices"
+
+	"github.com/utilitywarehouse/git-mirror/internal/utils"
 )
 
 type WorkTreeLink struct {
@@ -15,6 +17,11 @@ type WorkTreeLink struct {
 	ref       string   // the ref of the worktree
 	pathspecs []string // pathspecs of the paths to checkout
 	log       *slog.Logger
+}
+
+// AbsoluteLink returns worktree's absolute link path
+func (wt *WorkTreeLink) AbsoluteLink() string {
+	return wt.linkAbs
 }
 
 // Equals returns if given worktree and its config is equal
@@ -41,7 +48,7 @@ func (w *WorkTreeLink) worktreeDirName(hash string) string {
 
 // currentWorktree reads symlink path of the given worktree link
 func (wl *WorkTreeLink) currentWorktree() (string, error) {
-	return readAbsLink(wl.linkAbs)
+	return utils.ReadAbsLink(wl.linkAbs)
 }
 
 // workTreeHash returns the hash of the given revision and for the path if specified.

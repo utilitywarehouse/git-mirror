@@ -1,4 +1,4 @@
-package mirror
+package repository
 
 import (
 	"log/slog"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
+	"github.com/utilitywarehouse/git-mirror/giturl"
 )
 
 func TestNewRepo(t *testing.T) {
@@ -100,14 +100,14 @@ func TestNewRepo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rc := RepositoryConfig{
+			rc := Config{
 				Remote:   tt.args.remoteURL,
 				Root:     tt.args.root,
 				Interval: tt.args.interval,
 				GitGC:    tt.args.gc,
 				Auth:     tt.args.auth,
 			}
-			got, err := NewRepository(rc, nil, slog.Default())
+			got, err := New(rc, nil, slog.Default())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewRepository() error = %v, wantErr %v", err, tt.wantErr)
 				return

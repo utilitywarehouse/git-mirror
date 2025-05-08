@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
-	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
+	"github.com/utilitywarehouse/git-mirror/giturl"
+	"github.com/utilitywarehouse/git-mirror/repopool"
+	"github.com/utilitywarehouse/git-mirror/repository"
 	"gopkg.in/yaml.v3"
 )
 
@@ -35,15 +36,15 @@ var (
 		Name: "git_mirror_config_last_reload_success_timestamp_seconds",
 		Help: "Timestamp of the last successful configuration reload.",
 	})
-	allowedRepoPoolConfig = getAllowedKeys(mirror.RepoPoolConfig{})
-	allowedDefaults       = getAllowedKeys(mirror.DefaultConfig{})
-	allowedAuthKeys       = getAllowedKeys(mirror.Auth{})
-	allowedRepoKeys       = getAllowedKeys(mirror.RepositoryConfig{})
-	allowedWorktreeKeys   = getAllowedKeys(mirror.WorktreeConfig{})
+	allowedRepoPoolConfig = getAllowedKeys(repopool.Config{})
+	allowedDefaults       = getAllowedKeys(repopool.DefaultConfig{})
+	allowedAuthKeys       = getAllowedKeys(repository.Auth{})
+	allowedRepoKeys       = getAllowedKeys(repository.Config{})
+	allowedWorktreeKeys   = getAllowedKeys(repository.WorktreeConfig{})
 )
 
 // WatchConfig polls the config file every interval and reloads if modified
-func WatchConfig(ctx context.Context, path string, watchConfig bool, interval time.Duration, onChange func(*mirror.RepoPoolConfig) bool) {
+func WatchConfig(ctx context.Context, path string, watchConfig bool, interval time.Duration, onChange func(*repopool.Config) bool) {
 	var lastModTime time.Time
 	var success bool
 
@@ -69,7 +70,7 @@ func WatchConfig(ctx context.Context, path string, watchConfig bool, interval ti
 	}
 }
 
-func loadConfig(path string, lastModTime time.Time, onChange func(*mirror.RepoPoolConfig) bool) (time.Time, bool) {
+func loadConfig(path string, lastModTime time.Time, onChange func(*repopool.Config) bool) (time.Time, bool) {
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		logger.Error("Error checking config file", "err", err)
@@ -94,7 +95,7 @@ func loadConfig(path string, lastModTime time.Time, onChange func(*mirror.RepoPo
 
 // ensureConfig will do the diff between current repoPool state and new config
 // and based on that diff it will add/remove repositories and worktrees
-func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) bool {
+func ensureConfig(repoPool *repopool.RepoPool, newConfig *repopool.Config) bool {
 	success := true
 
 	// add default values
@@ -152,7 +153,7 @@ func ensureConfig(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) b
 	return success
 }
 
-func applyGitDefaults(mirrorConf *mirror.RepoPoolConfig) {
+func applyGitDefaults(mirrorConf *repopool.Config) {
 	if mirrorConf.Defaults.Root == "" {
 		mirrorConf.Defaults.Root = defaultRoot
 	}
@@ -178,7 +179,7 @@ func applyGitDefaults(mirrorConf *mirror.RepoPoolConfig) {
 	}
 }
 
-func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
+func parseConfigFile(path string) (*repopool.Config, error) {
 	yamlFile, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read file err:%w", err)
@@ -189,7 +190,7 @@ func parseConfigFile(path string) (*mirror.RepoPoolConfig, error) {
 		return nil, fmt.Errorf("invalid config err:%w", err)
 	}
 
-	conf := &mirror.RepoPoolConfig{}
+	conf := &repopool.Config{}
 	err = yaml.Unmarshal(yamlFile, conf)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode config err:%w", err)
@@ -311,12 +312,12 @@ func findUnexpectedKey(raw map[string]interface{}, allowedKeys []string) string 
 
 // diffRepositories will do the diff between current state and new config and
 // return new repositories config and list of remote url which are not found in config
-func diffRepositories(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfig) (
-	newRepos []mirror.RepositoryConfig,
+func diffRepositories(repoPool *repopool.RepoPool, newConfig *repopool.Config) (
+	newRepos []repository.Config,
 	removedRepos []string,
 ) {
 	for _, newRepo := range newConfig.Repositories {
-		if _, err := repoPool.Repository(newRepo.Remote); errors.Is(err, mirror.ErrNotExist) {
+		if _, err := repoPool.Repository(newRepo.Remote); errors.Is(err, repopool.ErrNotExist) {
 			newRepos = append(newRepos, newRepo)
 		}
 	}
@@ -339,8 +340,8 @@ func diffRepositories(repoPool *mirror.RepoPool, newConfig *mirror.RepoPoolConfi
 
 // diffWorktrees will do the diff between current repo's worktree state and new worktree config
 // it will return new worktree configs and link names of the link not found in new config
-func diffWorktrees(repo *mirror.Repository, newRepoConf *mirror.RepositoryConfig) (
-	newWTCs []mirror.WorktreeConfig,
+func diffWorktrees(repo *repository.Repository, newRepoConf *repository.Config) (
+	newWTCs []repository.WorktreeConfig,
 	removedWTs []string,
 ) {
 	currentWTLinks := repo.WorktreeLinks()

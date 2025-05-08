@@ -1,38 +1,48 @@
-package mirror
+package repopool
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/utilitywarehouse/git-mirror/repository"
+)
+
+const (
+	testUpstreamRepo = "upstream1"
+	testRoot         = "root"
+	testInterval     = 1 * time.Second
+	testTimeout      = 10 * time.Second
 )
 
 func TestRepoPool_validateLinkPath(t *testing.T) {
 	root := "/tmp/root"
 
-	rpc := RepoPoolConfig{
+	rpc := Config{
 		Defaults: DefaultConfig{
 			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 		},
-		Repositories: []RepositoryConfig{
+		Repositories: []repository.Config{
 			{
 				Remote:    "git@github.com:org/repo1.git",
-				Worktrees: []WorktreeConfig{{Link: "link1"}},
+				Worktrees: []repository.WorktreeConfig{{Link: "link1"}},
 			},
 			{
 				Remote:    "git@github.com:org/repo2.git",
-				Worktrees: []WorktreeConfig{{Link: "link2"}},
+				Worktrees: []repository.WorktreeConfig{{Link: "link2"}},
 			},
 		},
 	}
 
-	rp, err := NewRepoPool(t.Context(), rpc, nil, testENVs)
+	rp, err := New(t.Context(), rpc, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected err:%s", err)
 	}
 
 	tests := []struct {
 		name    string
-		repo    *Repository
+		repo    *repository.Repository
 		link    string
 		wantErr bool
 	}{

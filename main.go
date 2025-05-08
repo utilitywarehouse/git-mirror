@@ -18,7 +18,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
+	"github.com/utilitywarehouse/git-mirror/repopool"
+	"github.com/utilitywarehouse/git-mirror/repository"
 )
 
 var (
@@ -104,7 +105,7 @@ func main() {
 	logger.Info("version", "app", info.Main.Version, "go", info.GoVersion)
 	logger.Info("config", "path", *flagConfig, "watch", *flagWatchConfig)
 
-	mirror.EnableMetrics("", prometheus.NewRegistry())
+	repository.EnableMetrics("", prometheus.NewRegistry())
 	prometheus.MustRegister(configSuccess, configSuccessTime)
 
 	server := &http.Server{
@@ -135,7 +136,7 @@ func main() {
 	// path to resolve git
 	gitENV := []string{fmt.Sprintf("PATH=%s", os.Getenv("PATH"))}
 
-	repoPool, err := mirror.NewRepoPool(ctx, *conf, logger.With("logger", "git-mirror"), gitENV)
+	repoPool, err := repopool.New(ctx, *conf, logger.With("logger", "git-mirror"), gitENV)
 	if err != nil {
 		logger.Error("could not create git mirror pool", "err", err)
 		os.Exit(1)
@@ -168,7 +169,7 @@ func main() {
 
 	cleanupOrphanedRepos(conf, repoPool)
 
-	onConfigChange := func(config *mirror.RepoPoolConfig) bool {
+	onConfigChange := func(config *repopool.Config) bool {
 		return ensureConfig(repoPool, config)
 	}
 

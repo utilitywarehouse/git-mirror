@@ -1,4 +1,4 @@
-package mirror
+package repository
 
 import (
 	"strconv"
