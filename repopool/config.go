@@ -71,7 +71,7 @@ func (rpc *Config) validateDefaults() error {
 
 	if dc.MirrorTimeout != 0 {
 		if dc.MirrorTimeout < repository.MinAllowedInterval {
-			errs = append(errs, fmt.Errorf("provided mirroring timeout is too short (%s), must be > %s", dc.Interval, repository.MinAllowedInterval))
+			errs = append(errs, fmt.Errorf("provided mirroring timeout is too short (%s), must be > %s", dc.MirrorTimeout, repository.MinAllowedInterval))
 		}
 	}
 
