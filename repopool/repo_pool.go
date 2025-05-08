@@ -27,13 +27,14 @@ type RepoPool struct {
 	lock       lock.RWMutex
 	log        *slog.Logger
 	repos      []*repository.Repository
+	cmd        string
 	commonENVs []string
 	Stopped    chan bool
 }
 
 // New will create repository pool based on given config.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
-func New(ctx context.Context, conf Config, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
+func New(ctx context.Context, conf Config, log *slog.Logger, gitExec string, commonENVs []string) (*RepoPool, error) {
 	if err := conf.ValidateAndApplyDefaults(); err != nil {
 		return nil, err
 	}
@@ -46,6 +47,7 @@ func New(ctx context.Context, conf Config, log *slog.Logger, commonENVs []string
 	rp := &RepoPool{
 		ctx:        repoCtx,
 		log:        log,
+		cmd:        gitExec,
 		commonENVs: commonENVs,
 		Stopped:    make(chan bool),
 	}
@@ -102,7 +104,7 @@ func (rp *RepoPool) AddRepository(repoConf repository.Config) error {
 	rp.lock.Lock()
 	defer rp.lock.Unlock()
 
-	repo, err := repository.New(repoConf, rp.commonENVs, rp.log)
+	repo, err := repository.New(repoConf, rp.cmd, rp.commonENVs, rp.log)
 	if err != nil {
 		return err
 	}

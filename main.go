@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/pprof"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime/debug"
 	"strconv"
@@ -33,6 +34,8 @@ var (
 		"warn":  slog.LevelWarn,
 		"error": slog.LevelError,
 	}
+
+	gitExecutablePath = exec.Command("git").String()
 )
 
 func init() {
@@ -133,10 +136,7 @@ func main() {
 
 	applyGitDefaults(conf)
 
-	// path to resolve git
-	gitENV := []string{fmt.Sprintf("PATH=%s", os.Getenv("PATH"))}
-
-	repoPool, err := repopool.New(ctx, *conf, logger.With("logger", "git-mirror"), gitENV)
+	repoPool, err := repopool.New(ctx, *conf, logger.With("logger", "git-mirror"), gitExecutablePath, nil)
 	if err != nil {
 		logger.Error("could not create git mirror pool", "err", err)
 		os.Exit(1)

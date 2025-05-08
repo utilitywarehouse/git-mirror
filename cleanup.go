@@ -1,18 +1,17 @@
 package main
 
 import (
+	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/utilitywarehouse/git-mirror/internal/utils"
 	"github.com/utilitywarehouse/git-mirror/repopool"
 	"github.com/utilitywarehouse/git-mirror/repository"
 )
-
-var gitExecutablePath = exec.Command("git").String()
 
 // cleanupOrphanedRepos deletes directory of the repos from the default root
 // which are no longer referenced in config and it was removed while app was down.
@@ -88,10 +87,6 @@ func isBareRepo(cwd string) (bool, error) {
 
 // runGitCommand runs git command with given arguments on given CWD
 func runGitCommand(cwd string, args ...string) (string, error) {
-	cmd := exec.Command(gitExecutablePath, args...)
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-	output, err := cmd.CombinedOutput()
-	return strings.TrimSpace(string(output)), err
+	output, err := utils.RunCommand(context.TODO(), logger, nil, cwd, gitExecutablePath, args...)
+	return strings.TrimSpace(output), err
 }

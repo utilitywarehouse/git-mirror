@@ -52,25 +52,25 @@ func (wl *WorkTreeLink) currentWorktree() (string, error) {
 }
 
 // workTreeHash returns the hash of the given revision and for the path if specified.
-func (wl *WorkTreeLink) workTreeHash(ctx context.Context, wt string) (string, error) {
+func (r *Repository) workTreeHash(ctx context.Context, wl *WorkTreeLink, wt string) (string, error) {
 	// if worktree is not valid then command can return HEAD of the mirrored repo
 	// instead of worktree
-	if !wl.isInsideWorkTree(ctx, wt) {
+	if !r.isInsideWorkTree(ctx, wl, wt) {
 		return "", fmt.Errorf("worktree is not a valid git worktree")
 	}
 	// git rev-parse HEAD
-	return runGitCommand(ctx, wl.log, nil, wt, "rev-parse", "HEAD")
+	return r.git(ctx, nil, wt, "rev-parse", "HEAD")
 }
 
 // isInsideWorkTree will make sure given worktree dir is inside worktree dir
 // (.git file exists)
-func (wl *WorkTreeLink) isInsideWorkTree(ctx context.Context, wt string) bool {
+func (r *Repository) isInsideWorkTree(ctx context.Context, wl *WorkTreeLink, wt string) bool {
 	// worktree path should not be empty and must be absolute
 	if !filepath.IsAbs(wt) {
 		return false
 	}
 	// git rev-parse --is-inside-work-tree
-	if ok, err := runGitCommand(ctx, wl.log, nil, wt, "rev-parse", "--is-inside-work-tree"); err != nil {
+	if ok, err := r.git(ctx, nil, wt, "rev-parse", "--is-inside-work-tree"); err != nil {
 		wl.log.Error("unable to verify if is-inside-work-tree", "path", wt, "err", err)
 		return false
 	} else if ok != "true" {
@@ -84,7 +84,7 @@ func (wl *WorkTreeLink) isInsideWorkTree(ctx context.Context, wt string) bool {
 // Note that this does not guarantee that the worktree has all the
 // files checked out - git could have died halfway through and the repo will
 // still pass this check.
-func (wl *WorkTreeLink) sanityCheckWorktree(ctx context.Context) bool {
+func (r *Repository) sanityCheckWorktree(ctx context.Context, wl *WorkTreeLink) bool {
 	wt, err := wl.currentWorktree()
 	if err != nil {
 		wl.log.Error("can't get current worktree", "err", err)
@@ -104,13 +104,13 @@ func (wl *WorkTreeLink) sanityCheckWorktree(ctx context.Context) bool {
 	}
 
 	// makes sure path is inside the work tree of the repository
-	if !wl.isInsideWorkTree(ctx, wt) {
+	if !r.isInsideWorkTree(ctx, wl, wt) {
 		return false
 	}
 
 	// Check that this is actually the root of the worktree.
 	// git rev-parse --show-toplevel
-	if root, err := runGitCommand(ctx, wl.log, nil, wt, "rev-parse", "--show-toplevel"); err != nil {
+	if root, err := r.git(ctx, nil, wt, "rev-parse", "--show-toplevel"); err != nil {
 		wl.log.Error("can't get worktree git dir", "path", wt, "err", err)
 		return false
 	} else {
@@ -122,7 +122,7 @@ func (wl *WorkTreeLink) sanityCheckWorktree(ctx context.Context) bool {
 
 	// Consistency-check the repo.
 	// git fsck --no-progress --connectivity-only
-	if _, err := runGitCommand(ctx, wl.log, nil, wt, "fsck", "--no-progress", "--connectivity-only"); err != nil {
+	if _, err := r.git(ctx, nil, wt, "fsck", "--no-progress", "--connectivity-only"); err != nil {
 		wl.log.Error("repo fsck failed", "path", wt, "err", err)
 		return false
 	}

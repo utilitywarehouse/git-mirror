@@ -44,7 +44,7 @@ repositories:
 
 	conf.Defaults.Root = tmpRoot
 
-	repos, err := repopool.New(ctx, conf, slog.Default(), nil)
+	repos, err := repopool.New(ctx, conf, slog.Default(), "", nil)
 	if err != nil {
 		panic(err)
 	}
@@ -71,7 +71,7 @@ repositories:
 	fmt.Println("last commit msg at main", "msg", msg)
 
 	// make sure file exists in the tree
-	_, err = os.Stat(tmpRoot + "/main/pkg/mirror/repository.go")
+	_, err = os.Stat(tmpRoot + "/main/repository/repository.go")
 	if err != nil {
 		panic(err)
 	}
