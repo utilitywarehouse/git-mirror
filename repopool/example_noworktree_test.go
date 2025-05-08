@@ -41,7 +41,7 @@ repositories:
 	}
 	conf.Defaults.Root = tmpRoot
 
-	repos, err := repopool.New(ctx, conf, slog.Default(), nil)
+	repos, err := repopool.New(ctx, conf, slog.Default(), "", nil)
 	if err != nil {
 		panic(err)
 	}

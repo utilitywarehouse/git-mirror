@@ -74,7 +74,7 @@ func Test_diffRepositories(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			applyGitDefaults(tt.initialConfig)
-			repoPool, err := repopool.New(t.Context(), *tt.initialConfig, nil, nil)
+			repoPool, err := repopool.New(t.Context(), *tt.initialConfig, nil, "", nil)
 			if err != nil {
 				t.Fatalf("could not create git mirror pool err:%v", err)
 			}
@@ -203,7 +203,7 @@ func Test_diffWorktrees(t *testing.T) {
 				t.Fatalf("failed to create repo error = %v", err)
 			}
 
-			repo, err := repository.New(*tt.initialRepoConf, nil, slog.Default())
+			repo, err := repository.New(*tt.initialRepoConf, "", nil, slog.Default())
 			if err != nil {
 				t.Fatalf("failed to create repo error = %v", err)
 			}

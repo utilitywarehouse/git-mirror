@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -190,7 +189,7 @@ func Test_mirror_head_and_main(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link2, ref2, []string{}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -254,7 +253,7 @@ func Test_mirror_bad_ref(t *testing.T) {
 		GitGC:         "always",
 		Worktrees:     []repository.WorktreeConfig{{Link: link, Ref: ref}},
 	}
-	repo, err := repository.New(rc, testENVs, testLog)
+	repo, err := repository.New(rc, "", testENVs, testLog)
 	if err != nil {
 		t.Fatalf("unable to create new repo error: %v", err)
 	}
@@ -288,7 +287,7 @@ func Test_mirror_other_branch(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link2, ref2, []string{}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -378,10 +377,10 @@ func Test_mirror_with_pathspec(t *testing.T) {
 	mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-main-2")
 
 	// add worktree for HEAD on dir2
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link2, ref2, []string{pathSpec2}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{pathSpec2}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link4, ref2, []string{pathSpec2}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link4, Ref: ref2, Pathspecs: []string{pathSpec2}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 
@@ -408,14 +407,14 @@ func Test_mirror_with_pathspec(t *testing.T) {
 	mustCommit(t, upstream, filepath.Join("dir3", "file"), t.Name()+"-main-3")
 
 	// add worktree for HEAD on dir3
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link3, ref3, []string{pathSpec3}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link3, Ref: ref3, Pathspecs: []string{pathSpec3}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// update worktree link4
 	if err := repo.RemoveWorktreeLink(link4); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link4, ref2, []string{pathSpec3, pathSpec2}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link4, Ref: ref2, Pathspecs: []string{pathSpec3, pathSpec2}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror new commits
@@ -489,7 +488,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 
 	repo1 := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo1.AddWorktreeLink(repository.WorktreeConfig{link2, ref2, []string{}}); err != nil {
+	if err := repo1.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -505,7 +504,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 
 	repo2 := mustCreateRepoAndMirror(t, upstream, root, link1, ref2)
 	// add 2nd worktree
-	if err := repo2.AddWorktreeLink(repository.WorktreeConfig{link2, ref1, []string{}}); err != nil {
+	if err := repo2.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref1, Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -565,7 +564,7 @@ func Test_mirror_tag_sha(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add 2nd worktree
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link2, ref2, []string{}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -1292,7 +1291,7 @@ func Test_mirror_loop(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{link2, ref2, []string{}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 
@@ -1375,14 +1374,14 @@ func Test_RepoPool_Success(t *testing.T) {
 		},
 	}
 
-	rp, err := repopool.New(t.Context(), rpc, testLog, testENVs)
+	rp, err := repopool.New(t.Context(), rpc, testLog, "", testENVs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// add worktree
 	// we will verify this worktree in next mirror loop
-	if err := rp.AddWorktreeLink(remote1, repository.WorktreeConfig{"link3", "", []string{}}); err != nil {
+	if err := rp.AddWorktreeLink(remote1, repository.WorktreeConfig{Link: "link3", Ref: "", Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unexpected err:%s", err)
 	}
 
@@ -1571,7 +1570,7 @@ func Test_RepoPool_Error(t *testing.T) {
 		},
 	}
 
-	rp, err := repopool.New(t.Context(), rpc, testLog, testENVs)
+	rp, err := repopool.New(t.Context(), rpc, testLog, "", testENVs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1648,12 +1647,12 @@ func mustCreateRepoAndMirror(t *testing.T, upstream, root, link, ref string) *re
 		MirrorTimeout: testTimeout,
 		GitGC:         "always",
 	}
-	repo, err := repository.New(rc, testENVs, testLog)
+	repo, err := repository.New(rc, "", testENVs, testLog)
 	if err != nil {
 		t.Fatalf("unable to create new repo error: %v", err)
 	}
 	if link != "" {
-		if err := repo.AddWorktreeLink(repository.WorktreeConfig{link, ref, []string{}}); err != nil {
+		if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link, Ref: ref, Pathspecs: []string{}}); err != nil {
 			t.Fatalf("unable to add worktree error: %v", err)
 		}
 	}
@@ -1792,19 +1791,12 @@ func assertCommitLog(t *testing.T, repo *repository.Repository,
 	}
 }
 
-func mustExec(t *testing.T, cwd string, name string, arg ...string) string {
+func mustExec(t *testing.T, cwd string, command string, arg ...string) string {
 	t.Helper()
 
-	cmd := exec.Command(name, arg...)
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-
-	cmd.Env = testENVs
-
-	stdoutStderr, err := cmd.CombinedOutput()
+	out, err := utils.RunCommand(context.TODO(), slog.Default(), testENVs, cwd, command, arg...)
 	if err != nil {
-		t.Fatalf("err:%v run(%s): { stdoutStderr %q }", cmd.String(), err, stdoutStderr)
+		t.Fatal(err)
 	}
-	return strings.TrimSpace(string(stdoutStderr))
+	return strings.TrimSpace(out)
 }

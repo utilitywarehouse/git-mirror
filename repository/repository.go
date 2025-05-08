@@ -30,17 +30,12 @@ var (
 	ErrRepoMirrorFailed   = errors.New("repository mirror failed")
 	ErrRepoWTUpdateFailed = errors.New("repository worktree update failed")
 
-	gitExecutablePath string
-	staleTimeout      time.Duration = 10 * time.Second // time for stale worktrees to be cleaned up
+	staleTimeout time.Duration = 10 * time.Second // time for stale worktrees to be cleaned up
 
 	// to parse output of "git ls-remote --symref origin HEAD"
 	// ref: refs/heads/xxxx  HEAD
 	remoteDefaultBranchRgx = regexp.MustCompile(`^ref:\s+([^\s]+)\s+HEAD`)
 )
-
-func init() {
-	gitExecutablePath = exec.Command("git").String()
-}
 
 type gcMode string
 
@@ -55,6 +50,7 @@ const (
 // The implementation borrows heavily from https://github.com/kubernetes/git-sync.
 // A Repository is safe for concurrent use by multiple goroutines.
 type Repository struct {
+	cmd           string                   // git exec path
 	lock          lock.RWMutex             // repository will be locked during mirror
 	gitURL        *giturl.URL              // parsed remote git URL
 	remote        string                   // remote repo to mirror
@@ -77,7 +73,7 @@ type Repository struct {
 
 // New creates new repository from the given config.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called.
-func New(repoConf Config, envs []string, log *slog.Logger) (*Repository, error) {
+func New(repoConf Config, gitExec string, envs []string, log *slog.Logger) (*Repository, error) {
 	remoteURL := giturl.NormaliseURL(repoConf.Remote)
 
 	gURL, err := giturl.Parse(remoteURL)
@@ -90,6 +86,10 @@ func New(repoConf Config, envs []string, log *slog.Logger) (*Repository, error) 
 	}
 
 	log = log.With("repo", gURL.Repo)
+
+	if gitExec == "" {
+		gitExec = exec.Command("git").String()
+	}
 
 	if !filepath.IsAbs(repoConf.Root) {
 		return nil, fmt.Errorf("repository root '%s' must be absolute", repoConf.Root)
@@ -125,6 +125,7 @@ func New(repoConf Config, envs []string, log *slog.Logger) (*Repository, error) 
 	repoDir = filepath.Join(DefaultRepoDir(repoConf.Root), repoDir)
 
 	repo := &Repository{
+		cmd:           gitExec,
 		gitURL:        gURL,
 		remote:        remoteURL,
 		root:          repoConf.Root,
@@ -244,7 +245,7 @@ func (r *Repository) Subject(ctx context.Context, hash string) (string, error) {
 	defer r.lock.RUnlock()
 
 	args := []string{"show", `--no-patch`, `--format=%s`, hash}
-	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	msg, err := r.git(ctx, nil, "", args...)
 	if err != nil {
 		return "", err
 	}
@@ -259,7 +260,7 @@ func (r *Repository) ChangedFiles(ctx context.Context, hash string) ([]string, e
 	defer r.lock.RUnlock()
 
 	args := []string{"show", `--name-only`, `--pretty=format:`, hash}
-	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	msg, err := r.git(ctx, nil, "", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +294,7 @@ func (r *Repository) ListCommitsWithChangedFiles(ctx context.Context, ref1, ref2
 	defer r.lock.RUnlock()
 
 	args := []string{"log", `--name-only`, `--pretty=format:%H`, ref1 + ".." + ref2}
-	msg, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	msg, err := r.git(ctx, nil, "", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +342,7 @@ func (r *Repository) ObjectExists(ctx context.Context, obj string) error {
 	defer r.lock.RUnlock()
 
 	args := []string{"cat-file", `-e`, obj}
-	_, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	_, err := r.git(ctx, nil, "", args...)
 	return err
 }
 
@@ -384,7 +385,7 @@ func (r *Repository) Clone(ctx context.Context, dst, ref string, pathspecs []str
 	// create a thin clone of a repository that only contains the history of the given revision
 	// git clone --no-checkout --revision <ref> <repo_src> <dst>
 	args := []string{"clone", "--no-checkout", "--revision", ref, r.dir, dst}
-	if _, err := runGitCommand(ctx, r.log, nil, "", args...); err != nil {
+	if _, err := r.git(ctx, nil, "", args...); err != nil {
 		return "", err
 	}
 
@@ -394,14 +395,14 @@ func (r *Repository) Clone(ctx context.Context, dst, ref string, pathspecs []str
 		args = append(args, pathspecs...)
 	}
 	// git checkout <branch> -- <pathspec>
-	if _, err := runGitCommand(ctx, r.log, nil, dst, args...); err != nil {
+	if _, err := r.git(ctx, nil, dst, args...); err != nil {
 		return "", err
 	}
 
 	// get the hash of the repos HEAD
 	args = []string{"log", "--pretty=format:%H", "-n", "1", "HEAD"}
 	// git log --pretty=format:%H -n 1 HEAD
-	hash, err := runGitCommand(ctx, r.log, nil, dst, args...)
+	hash, err := r.git(ctx, nil, dst, args...)
 	if err != nil {
 		return "", err
 	}
@@ -599,7 +600,7 @@ func (r *Repository) init(ctx context.Context) error {
 	// create bare repository as we will use worktrees to checkout files
 	r.log.Info("initializing repo directory", "path", r.dir)
 	// git init -q --bare
-	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "init", "-q", "--bare"); err != nil {
+	if _, err := r.git(ctx, nil, "", "init", "-q", "--bare"); err != nil {
 		return fmt.Errorf("unable to init repo err:%w", err)
 	}
 
@@ -608,7 +609,7 @@ func (r *Repository) init(ctx context.Context) error {
 	// use --mirror=fetch as we want to create mirrored bare repository. it will make sure
 	// everything in refs/* on the remote will be directly mirrored into refs/* in the local repository.
 	// git remote add --mirror=fetch origin <remote>
-	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "remote", "add", "--mirror=fetch", "origin", r.remote); err != nil {
+	if _, err := r.git(ctx, nil, "", "remote", "add", "--mirror=fetch", "origin", r.remote); err != nil {
 		return fmt.Errorf("unable to set remote err:%w", err)
 	}
 
@@ -620,7 +621,7 @@ func (r *Repository) init(ctx context.Context) error {
 
 	// set local HEAD to remote HEAD/default branch
 	// git symbolic-ref HEAD <headBranch>(refs/heads/master)
-	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "symbolic-ref", "HEAD", headBranch); err != nil {
+	if _, err := r.git(ctx, nil, "", "symbolic-ref", "HEAD", headBranch); err != nil {
 		return fmt.Errorf("unable to set remote err:%w", err)
 	}
 
@@ -637,7 +638,7 @@ func (r *Repository) getRemoteDefaultBranch(ctx context.Context) (string, error)
 	envs := r.authEnv(ctx)
 
 	// git ls-remote --symref origin HEAD
-	out, err := runGitCommand(ctx, r.log, envs, r.dir, "ls-remote", "--symref", "origin", "HEAD")
+	out, err := r.git(ctx, envs, "", "ls-remote", "--symref", "origin", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("unable to get default branch err:%w", err)
 	}
@@ -665,7 +666,7 @@ func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
 
 	// make sure repo is bare repository
 	// git rev-parse --is-bare-repository
-	if ok, err := runGitCommand(ctx, r.log, r.envs, r.dir, "rev-parse", "--is-bare-repository"); err != nil {
+	if ok, err := r.git(ctx, nil, "", "rev-parse", "--is-bare-repository"); err != nil {
 		r.log.Error("unable to verify bare repo", "path", r.dir, "err", err)
 		return false
 	} else if ok != "true" {
@@ -675,7 +676,7 @@ func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
 
 	// Check that this is actually the root of the repo.
 	// git rev-parse --absolute-git-dir
-	if root, err := runGitCommand(ctx, r.log, r.envs, r.dir, "rev-parse", "--absolute-git-dir"); err != nil {
+	if root, err := r.git(ctx, nil, "", "rev-parse", "--absolute-git-dir"); err != nil {
 		r.log.Error("can't get repo git dir", "path", r.dir, "err", err)
 		return false
 	} else {
@@ -688,7 +689,7 @@ func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
 	// The "origin" remote has special meaning, like in relative-path submodules.
 	// make sure origin exists with correct remote URL
 	// git config --get remote.origin.url
-	if stdout, err := runGitCommand(ctx, r.log, r.envs, r.dir, "config", "--get", "remote.origin.url"); err != nil {
+	if stdout, err := r.git(ctx, nil, "", "config", "--get", "remote.origin.url"); err != nil {
 		r.log.Error("can't get repo config remote.origin.url", "path", r.dir, "err", err)
 		return false
 	} else if stdout != r.remote {
@@ -698,7 +699,7 @@ func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
 
 	// verify origin's fetch refspec
 	// git config --get remote.origin.fetch
-	if stdout, err := runGitCommand(ctx, r.log, r.envs, r.dir, "config", "--get", "remote.origin.fetch"); err != nil {
+	if stdout, err := r.git(ctx, nil, "", "config", "--get", "remote.origin.fetch"); err != nil {
 		r.log.Error("can't get repo config remote.origin.fetch", "path", r.dir, "err", err)
 		return false
 	} else if stdout != defaultRefSpec {
@@ -709,7 +710,7 @@ func (r *Repository) sanityCheckRepo(ctx context.Context) bool {
 	// Consistency-check the repo.  Don't use --verbose because it can be
 	// REALLY verbose.
 	// git fsck --no-progress --connectivity-only
-	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "fsck", "--no-progress", "--connectivity-only"); err != nil {
+	if _, err := r.git(ctx, nil, "", "fsck", "--no-progress", "--connectivity-only"); err != nil {
 		r.log.Error("repo fsck failed", "path", r.dir, "err", err)
 		return false
 	}
@@ -726,7 +727,7 @@ func (r *Repository) fetch(ctx context.Context) ([]string, error) {
 	envs := r.authEnv(ctx)
 
 	// git fetch origin --prune --no-progress --no-auto-gc
-	out, err := runGitCommand(ctx, r.log, envs, r.dir, args...)
+	out, err := r.git(ctx, envs, "", args...)
 	return updatedRefs(out), err
 }
 
@@ -737,7 +738,7 @@ func (r *Repository) hash(ctx context.Context, ref, path string) (string, error)
 		args = append(args, "--", path)
 	}
 	// git log --pretty=format:%H -n 1 <ref> [-- <path>]
-	return runGitCommand(ctx, r.log, r.envs, r.dir, args...)
+	return r.git(ctx, nil, "", args...)
 }
 
 // ensureWorktreeLink will create / validate worktrees
@@ -766,7 +767,7 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 
 	if currentPath != "" {
 		// get hash from the worktree folder
-		currentHash, err = wl.workTreeHash(ctx, currentPath)
+		currentHash, err = r.workTreeHash(ctx, wl, currentPath)
 		if err != nil {
 			// in case of error we create new worktree
 			wl.log.Error("unable to get current worktree hash", "err", err)
@@ -774,7 +775,7 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 	}
 
 	if currentHash == remoteHash {
-		if wl.sanityCheckWorktree(ctx) {
+		if r.sanityCheckWorktree(ctx, wl) {
 			return nil
 		}
 		wl.log.Error("worktree failed checks, re-creating...", "path", currentPath)
@@ -816,7 +817,7 @@ func (r *Repository) createWorktree(ctx context.Context, wl *WorkTreeLink, hash 
 
 	wl.log.Info("creating worktree", "path", wtPath, "hash", hash)
 	// git worktree add --force --detach --no-checkout <wt-path> <hash>
-	_, err := runGitCommand(ctx, wl.log, nil, r.dir, "worktree", "add", "--force", "--detach", "--no-checkout", wtPath, hash)
+	_, err := r.git(ctx, nil, "", "worktree", "add", "--force", "--detach", "--no-checkout", wtPath, hash)
 	if err != nil {
 		return wtPath, err
 	}
@@ -828,7 +829,7 @@ func (r *Repository) createWorktree(ctx context.Context, wl *WorkTreeLink, hash 
 		args = append(args, wl.pathspecs...)
 	}
 	// git checkout <hash> -- <pathspec...>
-	if _, err := runGitCommand(ctx, wl.log, nil, wtPath, args...); err != nil {
+	if _, err := r.git(ctx, nil, wtPath, args...); err != nil {
 		return "", err
 	}
 
@@ -851,7 +852,7 @@ func (r *Repository) removeWorktree(ctx context.Context, path string) error {
 		return fmt.Errorf("error removing directory: %w", err)
 	}
 	// git worktree prune -v
-	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "worktree", "prune", "--verbose"); err != nil {
+	if _, err := r.git(ctx, nil, "", "worktree", "prune", "--verbose"); err != nil {
 		return err
 	}
 	return nil
@@ -868,13 +869,13 @@ func (r *Repository) cleanup(ctx context.Context) error {
 
 	// Let git know we don't need those old commits any more.
 	// git worktree prune -v
-	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "worktree", "prune", "--verbose"); err != nil {
+	if _, err := r.git(ctx, nil, "", "worktree", "prune", "--verbose"); err != nil {
 		cleanupErrs = append(cleanupErrs, err)
 	}
 
 	// Expire old refs.
 	// git reflog expire --expire-unreachable=all --all
-	if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, "reflog", "expire", "--expire-unreachable=all", "--all"); err != nil {
+	if _, err := r.git(ctx, nil, "", "reflog", "expire", "--expire-unreachable=all", "--all"); err != nil {
 		cleanupErrs = append(cleanupErrs, err)
 	}
 
@@ -889,7 +890,7 @@ func (r *Repository) cleanup(ctx context.Context) error {
 		case GCAggressive:
 			args = append(args, "--aggressive")
 		}
-		if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...); err != nil {
+		if _, err := r.git(ctx, nil, "", args...); err != nil {
 			cleanupErrs = append(cleanupErrs, err)
 		}
 	}
@@ -929,4 +930,12 @@ func (r *Repository) removeStaleWorktrees() (int, error) {
 		return 0, err
 	}
 	return count, nil
+}
+
+// git runs git command with given arguments on given CWD
+func (r *Repository) git(ctx context.Context, envs []string, cwd string, args ...string) (string, error) {
+	if cwd == "" {
+		cwd = r.dir
+	}
+	return utils.RunCommand(ctx, r.log, append(r.envs, envs...), cwd, r.cmd, args...)
 }

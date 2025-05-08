@@ -34,6 +34,7 @@ func TestNewRepo(t *testing.T) {
 				gc:        "always",
 			},
 			&Repository{
+				cmd:           "git",
 				gitURL:        &giturl.URL{Scheme: "scp", User: "user", Host: "host.xz", Path: "path/to", Repo: "repo.git"},
 				remote:        "user@host.xz:path/to/repo.git",
 				root:          "/tmp",
@@ -107,7 +108,7 @@ func TestNewRepo(t *testing.T) {
 				GitGC:    tt.args.gc,
 				Auth:     tt.args.auth,
 			}
-			got, err := New(rc, nil, slog.Default())
+			got, err := New(rc, "git", nil, slog.Default())
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewRepository() error = %v, wantErr %v", err, tt.wantErr)
 				return

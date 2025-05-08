@@ -113,11 +113,6 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 }
 
 func Test_mirror_detect_race_slow_fetch(t *testing.T) {
-	// replace global git path with slower git wrapper script
-	cwd, _ := os.Getwd()
-
-	os.Setenv("GIT_MIRROR_GIT_EXEC", exec.Command(path.Join(cwd, "git_slow_fetch.sh")).String())
-
 	testTmpDir := mustTmpDir(t)
 	defer os.RemoveAll(testTmpDir)
 
@@ -132,15 +127,27 @@ func Test_mirror_detect_race_slow_fetch(t *testing.T) {
 	t.Log("TEST-1: init upstream")
 	fileSHA1 := mustInitRepo(t, upstream, "file", testName+"-1")
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
-	// repo.mirrorTimeout = 2 * time.Minute
+	rc := repository.Config{
+		Remote:        "file://" + upstream,
+		Root:          root,
+		Interval:      testInterval,
+		MirrorTimeout: 2 * time.Minute, // testing slow fetch
+		GitGC:         "always",
+	}
+
+	// replace global git path with slower git wrapper script
+	cwd, _ := os.Getwd()
+	repo, err := repository.New(rc, exec.Command(path.Join(cwd, "git_slow_fetch.sh")).String(), testENVs, testLog)
+	if err != nil {
+		t.Fatalf("unable to create new repo error: %v", err)
+	}
+
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
 
 	// verify checkout files
 	assertCommitLog(t, repo, "HEAD", "", fileSHA1, testName+"-1", []string{"file"})
-
-	// start mirror loop
-	go repo.StartLoop(ctx)
-	defer repo.StopLoop()
 
 	t.Run("slow-fetch-without-timeout", func(t *testing.T) {
 
@@ -267,7 +274,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 		},
 	}
 
-	rp, err := repopool.New(t.Context(), rpc, testLog, testENVs)
+	rp, err := repopool.New(t.Context(), rpc, testLog, "", testENVs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
