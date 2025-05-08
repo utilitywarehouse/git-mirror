@@ -65,13 +65,13 @@ func (rpc *Config) validateDefaults() error {
 
 	if dc.Interval != 0 {
 		if dc.Interval < repository.MinAllowedInterval {
-			errs = append(errs, fmt.Errorf("provided interval between mirroring is too sort (%s), must be > %s", dc.Interval, repository.MinAllowedInterval))
+			errs = append(errs, fmt.Errorf("provided interval between mirroring is too short (%s), must be > %s", dc.Interval, repository.MinAllowedInterval))
 		}
 	}
 
 	if dc.MirrorTimeout != 0 {
 		if dc.MirrorTimeout < repository.MinAllowedInterval {
-			errs = append(errs, fmt.Errorf("provided mirroring timeout is too sort (%s), must be > %s", dc.Interval, repository.MinAllowedInterval))
+			errs = append(errs, fmt.Errorf("provided mirroring timeout is too short (%s), must be > %s", dc.Interval, repository.MinAllowedInterval))
 		}
 	}
 
