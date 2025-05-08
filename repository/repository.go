@@ -1,4 +1,4 @@
-package mirror
+package repository
 
 import (
 	"context"
@@ -15,14 +15,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
-	"github.com/utilitywarehouse/git-mirror/pkg/lock"
+	"github.com/utilitywarehouse/git-mirror/giturl"
+	"github.com/utilitywarehouse/git-mirror/internal/lock"
+	"github.com/utilitywarehouse/git-mirror/internal/utils"
 )
 
 const (
 	defaultDirMode     fs.FileMode = os.FileMode(0755) // 'rwxr-xr-x'
 	defaultRefSpec                 = "+refs/*:refs/*"
-	minAllowedInterval             = time.Second
+	MinAllowedInterval             = time.Second
 )
 
 var (
@@ -44,10 +45,10 @@ func init() {
 type gcMode string
 
 const (
-	gcAuto       = "auto"
-	gcAlways     = "always"
-	gcAggressive = "aggressive"
-	gcOff        = "off"
+	GCAuto       = "auto"
+	GCAlways     = "always"
+	GCAggressive = "aggressive"
+	GCOff        = "off"
 )
 
 // Repository represents the mirrored repository of the given remote.
@@ -74,9 +75,9 @@ type Repository struct {
 	githubAppTokenExpiresAt time.Time
 }
 
-// NewRepository creates new repository from the given config.
+// New creates new repository from the given config.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called.
-func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (*Repository, error) {
+func New(repoConf Config, envs []string, log *slog.Logger) (*Repository, error) {
 	remoteURL := giturl.NormaliseURL(repoConf.Remote)
 
 	gURL, err := giturl.Parse(remoteURL)
@@ -102,15 +103,15 @@ func NewRepository(repoConf RepositoryConfig, envs []string, log *slog.Logger) (
 		repoConf.LinkRoot = repoConf.Root
 	}
 
-	if repoConf.Interval < minAllowedInterval {
-		return nil, fmt.Errorf("provided interval between mirroring is too sort (%s), must be > %s", repoConf.Interval, minAllowedInterval)
+	if repoConf.Interval < MinAllowedInterval {
+		return nil, fmt.Errorf("provided interval between mirroring is too sort (%s), must be > %s", repoConf.Interval, MinAllowedInterval)
 	}
 
 	switch repoConf.GitGC {
-	case gcAuto, gcAlways, gcAggressive, gcOff:
+	case GCAuto, GCAlways, GCAggressive, GCOff:
 	default:
 		return nil, fmt.Errorf("wrong gc value provided, must be one of %s, %s, %s, %s",
-			gcAuto, gcAlways, gcAggressive, gcOff)
+			GCAuto, GCAlways, GCAggressive, GCOff)
 	}
 
 	// we are going to create bare repo which caller cannot use directly
@@ -161,7 +162,7 @@ func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
 		return fmt.Errorf("worktree with given link already exits link:%s ref:%s", v.linkAbs, v.ref)
 	}
 
-	linkAbs := absLink(r.linkRoot, wtc.Link)
+	linkAbs := r.AbsoluteLink(wtc.Link)
 
 	if wtc.Ref == "" {
 		wtc.Ref = "HEAD"
@@ -180,6 +181,21 @@ func (r *Repository) AddWorktreeLink(wtc WorktreeConfig) error {
 
 	r.workTreeLinks[wtc.Link] = wt
 	return nil
+}
+
+// AbsoluteLink returns absolute link path based on repo's root
+func (r *Repository) AbsoluteLink(link string) string {
+	return utils.AbsLink(r.linkRoot, link)
+}
+
+// Remote returns repository's remote url
+func (r *Repository) Remote() string {
+	return r.remote
+}
+
+// Dir returns absolute path to the repo directory
+func (r *Repository) Directory() string {
+	return r.dir
 }
 
 // WorktreeLinks returns current clone of worktree maps
@@ -287,12 +303,12 @@ func (r *Repository) ListCommitsWithChangedFiles(ctx context.Context, ref1, ref2
 // ParseCommitWithChangedFilesList will parse following output of 'show/log'
 // command with `--name-only`, `--pretty=format:%H` flags
 //
-// 72ea9c9de6963e97ac472d9ea996e384c6923cca
+//	72ea9c9de6963e97ac472d9ea996e384c6923cca
 //
-// 80e11d114dd3aa135c18573402a8e688599c69e0
-// one/readme.yaml
-// one/hello.tf
-// two/readme.yaml
+//	80e11d114dd3aa135c18573402a8e688599c69e0
+//	one/readme.yaml
+//	one/hello.tf
+//	two/readme.yaml
 func ParseCommitWithChangedFilesList(output string) []CommitInfo {
 	commitCount := 0
 	Commits := []CommitInfo{}
@@ -571,7 +587,7 @@ func (r *Repository) init(ctx context.Context) error {
 			// Maybe a previous run crashed?  Git won't use this dir.
 			// since we add own folder to given root path we could just delete whole dir
 			// and re-create it
-			if err := reCreate(r.dir); err != nil {
+			if err := utils.ReCreate(r.dir); err != nil {
 				return fmt.Errorf("unable to re-create repo dir err:%w", err)
 			}
 		} else {
@@ -863,14 +879,14 @@ func (r *Repository) cleanup(ctx context.Context) error {
 	}
 
 	// Run GC if needed.
-	if r.gitGC != gcOff {
+	if r.gitGC != GCOff {
 		args := []string{"gc"}
 		switch r.gitGC {
-		case gcAuto:
+		case GCAuto:
 			args = append(args, "--auto")
-		case gcAlways:
+		case GCAlways:
 			// no extra flags
-		case gcAggressive:
+		case GCAggressive:
 			args = append(args, "--aggressive")
 		}
 		if _, err := runGitCommand(ctx, r.log, r.envs, r.dir, args...); err != nil {
@@ -894,7 +910,7 @@ func (r *Repository) removeStaleWorktrees() (int, error) {
 			continue
 		}
 		if t != "" {
-			_, wtDir := splitAbs(t)
+			_, wtDir := utils.SplitAbs(t)
 			currentWTDirs = append(currentWTDirs, wtDir)
 		}
 	}

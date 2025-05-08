@@ -1,3 +1,4 @@
+// Package giturl parses different git url syntax
 package giturl
 
 import (

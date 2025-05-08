@@ -1,4 +1,4 @@
-package mirror_test
+package repopool_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
+	"github.com/utilitywarehouse/git-mirror/repopool"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,7 +36,7 @@ repositories:
 `
 	ctx := context.Background()
 
-	conf := mirror.RepoPoolConfig{}
+	conf := repopool.Config{}
 	err = yaml.Unmarshal([]byte(config), &conf)
 	if err != nil {
 		panic(err)
@@ -44,7 +44,7 @@ repositories:
 
 	conf.Defaults.Root = tmpRoot
 
-	repos, err := mirror.NewRepoPool(ctx, conf, slog.Default(), nil)
+	repos, err := repopool.New(ctx, conf, slog.Default(), nil)
 	if err != nil {
 		panic(err)
 	}

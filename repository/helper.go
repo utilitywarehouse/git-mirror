@@ -1,4 +1,4 @@
-package mirror
+package repository
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/utilitywarehouse/git-mirror/internal/utils"
 )
 
 var (
@@ -44,33 +46,10 @@ func dirIsEmpty(path string) (bool, error) {
 	return len(dirents) == 0, nil
 }
 
-// absLink will return absolute path for the given link
-// if its not already abs. given root must be an absolute path
-func absLink(root, link string) string {
-	linkAbs := link
-	if !filepath.IsAbs(linkAbs) {
-		linkAbs = filepath.Join(root, link)
-	}
-
-	return linkAbs
-}
-
-// reCreate removes dir and any children it contains and creates new dir
-// on the same path
-func reCreate(path string) error {
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("can't delete unusable dir: %w", err)
-	}
-	if err := os.MkdirAll(path, defaultDirMode); err != nil {
-		return fmt.Errorf("unable to create repo dir err:%w", err)
-	}
-	return nil
-}
-
 // publishSymlink atomically sets link to point at the specified target.
 // both linkPath and targetPath must be absolute paths
 func publishSymlink(linkPath string, targetPath string) error {
-	linkDir, linkFile := splitAbs(linkPath)
+	linkDir, linkFile := utils.SplitAbs(linkPath)
 
 	// Make sure the link directory exists.
 	if err := os.MkdirAll(linkDir, defaultDirMode); err != nil {
@@ -96,26 +75,6 @@ func publishSymlink(linkPath string, targetPath string) error {
 	}
 
 	return nil
-}
-
-// readAbsLink returns the destination of the named symbolic link.
-// return path will be absolute
-func readAbsLink(link string) (string, error) {
-	if !filepath.IsAbs(link) {
-		return "", fmt.Errorf("given link path must be absolute")
-	}
-	target, err := os.Readlink(link)
-	if err != nil && !os.IsNotExist(err) {
-		return "", err
-	}
-	if target == "" {
-		return "", nil
-	}
-	if filepath.IsAbs(target) {
-		return target, nil
-	}
-	linkDir, _ := splitAbs(link)
-	return filepath.Join(linkDir, target), nil
 }
 
 // removeDirContents iterated the specified dir and removes all contents
@@ -158,23 +117,6 @@ func removeDirContentsIf(dir string, log *slog.Logger, fn func(fi os.FileInfo) (
 		return fmt.Errorf("%s", errs)
 	}
 	return nil
-}
-
-func splitAbs(abs string) (string, string) {
-	if abs == "" {
-		return "", ""
-	}
-
-	// filepath.Split promises that dir+base == input, but trailing slashes on
-	// the dir is confusing and ugly.
-	pathSep := string(os.PathSeparator)
-	dir, base := filepath.Split(strings.TrimRight(abs, pathSep))
-	dir = strings.TrimRight(dir, pathSep)
-	if len(dir) == 0 {
-		dir = string(os.PathSeparator)
-	}
-
-	return dir, base
 }
 
 // nextRandom will generate random number string

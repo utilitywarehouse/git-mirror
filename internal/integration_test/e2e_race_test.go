@@ -1,6 +1,6 @@
 //go:build deadlock_test
 
-package mirror
+package e2e_test
 
 import (
 	"context"
@@ -12,6 +12,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/utilitywarehouse/git-mirror/repopool"
+	"github.com/utilitywarehouse/git-mirror/repository"
 )
 
 func Test_mirror_detect_race_clone(t *testing.T) {
@@ -34,7 +37,7 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
 	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(WorktreeConfig{link2, ref2, []string{}}); err != nil {
+	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
 		t.Fatalf("unable to add worktree error: %v", err)
 	}
 	// mirror again for 2nd worktree
@@ -49,7 +52,7 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 
 	// start mirror loop
 	go repo.StartLoop(ctx)
-	close(repo.stop)
+	defer repo.StopLoop()
 
 	t.Log("TEST-2: forward HEAD")
 	fileSHA2 := mustCommit(t, upstream, "file", testName+"-2")
@@ -112,7 +115,8 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 func Test_mirror_detect_race_slow_fetch(t *testing.T) {
 	// replace global git path with slower git wrapper script
 	cwd, _ := os.Getwd()
-	gitExecutablePath = exec.Command(path.Join(cwd, "z_git_slow_fetch.sh")).String()
+
+	os.Setenv("GIT_MIRROR_GIT_EXEC", exec.Command(path.Join(cwd, "git_slow_fetch.sh")).String())
 
 	testTmpDir := mustTmpDir(t)
 	defer os.RemoveAll(testTmpDir)
@@ -129,14 +133,14 @@ func Test_mirror_detect_race_slow_fetch(t *testing.T) {
 	fileSHA1 := mustInitRepo(t, upstream, "file", testName+"-1")
 
 	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
-	repo.mirrorTimeout = 2 * time.Minute
+	// repo.mirrorTimeout = 2 * time.Minute
 
 	// verify checkout files
 	assertCommitLog(t, repo, "HEAD", "", fileSHA1, testName+"-1", []string{"file"})
 
 	// start mirror loop
 	go repo.StartLoop(ctx)
-	close(repo.stop)
+	defer repo.StopLoop()
 
 	t.Run("slow-fetch-without-timeout", func(t *testing.T) {
 
@@ -257,13 +261,13 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 	fileU1SHA1 := mustInitRepo(t, upstream1, "file", t.Name()+"-u1-main-1")
 	fileU2SHA1 := mustInitRepo(t, upstream2, "file", t.Name()+"-u2-main-1")
 
-	rpc := RepoPoolConfig{
-		Defaults: DefaultConfig{
+	rpc := repopool.Config{
+		Defaults: repopool.DefaultConfig{
 			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 		},
 	}
 
-	rp, err := NewRepoPool(t.Context(), rpc, testLog, testENVs)
+	rp, err := repopool.New(t.Context(), rpc, testLog, testENVs)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -281,13 +285,13 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 
-				newConfig := RepoPoolConfig{
-					Defaults: DefaultConfig{
+				newConfig := repopool.Config{
+					Defaults: repopool.DefaultConfig{
 						Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 					},
-					Repositories: []RepositoryConfig{{
+					Repositories: []repository.Config{{
 						Remote:    remote1,
-						Worktrees: []WorktreeConfig{{Link: "link1"}}},
+						Worktrees: []repository.WorktreeConfig{{Link: "link1"}}},
 					},
 				}
 				if err := newConfig.ValidateAndApplyDefaults(); err != nil {
@@ -320,7 +324,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 					}
 				}()
 
-				if err := rp.AddWorktreeLink(remote1, WorktreeConfig{"link2", "", []string{}}); err != nil {
+				if err := rp.AddWorktreeLink(remote1, repository.WorktreeConfig{Link: "link2", Ref: "", Pathspecs: []string{}}); err != nil {
 					t.Error("unexpected err", "err", err)
 					return
 				}
@@ -351,12 +355,12 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 				ctx, cancel := context.WithCancel(t.Context())
 				defer cancel()
 
-				newConfig := RepoPoolConfig{
-					Defaults: DefaultConfig{
+				newConfig := repopool.Config{
+					Defaults: repopool.DefaultConfig{
 						Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 					},
-					Repositories: []RepositoryConfig{{Remote: remote2,
-						Worktrees: []WorktreeConfig{{Link: "link3"}}},
+					Repositories: []repository.Config{{Remote: remote2,
+						Worktrees: []repository.WorktreeConfig{{Link: "link3"}}},
 					},
 				}
 				if err := newConfig.ValidateAndApplyDefaults(); err != nil {
@@ -389,7 +393,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 					}
 				}()
 
-				if err := rp.AddWorktreeLink(remote2, WorktreeConfig{"link4", "", []string{}}); err != nil {
+				if err := rp.AddWorktreeLink(remote2, repository.WorktreeConfig{Link: "link4", Ref: "", Pathspecs: []string{}}); err != nil {
 					t.Error("unexpected err", "err", err)
 					return
 				}

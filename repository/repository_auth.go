@@ -1,4 +1,4 @@
-package mirror
+package repository
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/utilitywarehouse/git-mirror/pkg/auth"
-	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
+	"github.com/utilitywarehouse/git-mirror/auth"
+	"github.com/utilitywarehouse/git-mirror/giturl"
 )
 
 const loadCredsScript = `#!/bin/sh

@@ -8,7 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/utilitywarehouse/git-mirror/pkg/mirror"
+	"github.com/utilitywarehouse/git-mirror/repopool"
+	"github.com/utilitywarehouse/git-mirror/repository"
 )
 
 var gitExecutablePath = exec.Command("git").String()
@@ -19,14 +20,14 @@ var gitExecutablePath = exec.Command("git").String()
 // this function should be called once
 // this is best effort clean up as orphaned published link will not be clean up
 // as its not known where it was published.
-func cleanupOrphanedRepos(config *mirror.RepoPoolConfig, repoPool *mirror.RepoPool) {
+func cleanupOrphanedRepos(config *repopool.Config, repoPool *repopool.RepoPool) {
 	// if default root is not set repos might not be located in same dir
 	if config.Defaults.Root == "" {
 		return
 	}
 
 	repoDirs := repoPool.RepositoriesDirPath()
-	defaultRepoDirRoot := mirror.DefaultRepoDir(config.Defaults.Root)
+	defaultRepoDirRoot := repository.DefaultRepoDir(config.Defaults.Root)
 
 	entries, err := os.ReadDir(defaultRepoDirRoot)
 	if err != nil {

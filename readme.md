@@ -4,7 +4,7 @@ git-mirror is an app to periodically mirror (bare clones) remote repositories lo
 It supports multiple mirrored checked out worktrees on different references
 and it can also mirror multiple repositories.
 
-`git-mirror` can be used as golang library in your code. [docs](https://pkg.go.dev/github.com/utilitywarehouse/git-mirror/pkg/mirror)  
+`git-mirror` can be used as golang library in your code. [docs](https://pkg.go.dev/github.com/utilitywarehouse/git-mirror)  
 The mirror is created with `--mirror=fetch` hence everything in `refs/*` on the remote
 will be directly mirrored into `refs/*` in the local repository.
 

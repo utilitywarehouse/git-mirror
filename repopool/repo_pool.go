@@ -1,4 +1,4 @@
-package mirror
+package repopool
 
 import (
 	"context"
@@ -9,8 +9,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/utilitywarehouse/git-mirror/pkg/giturl"
-	"github.com/utilitywarehouse/git-mirror/pkg/lock"
+	"github.com/utilitywarehouse/git-mirror/giturl"
+	"github.com/utilitywarehouse/git-mirror/internal/lock"
+	"github.com/utilitywarehouse/git-mirror/repository"
 )
 
 var (
@@ -25,14 +26,14 @@ type RepoPool struct {
 	ctx        context.Context
 	lock       lock.RWMutex
 	log        *slog.Logger
-	repos      []*Repository
+	repos      []*repository.Repository
 	commonENVs []string
 	Stopped    chan bool
 }
 
-// NewRepoPool will create mirror repositories based on given config.
+// New will create repository pool based on given config.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
-func NewRepoPool(ctx context.Context, conf RepoPoolConfig, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
+func New(ctx context.Context, conf Config, log *slog.Logger, commonENVs []string) (*RepoPool, error) {
 	if err := conf.ValidateAndApplyDefaults(); err != nil {
 		return nil, err
 	}
@@ -92,7 +93,7 @@ func NewRepoPool(ctx context.Context, conf RepoPoolConfig, log *slog.Logger, com
 
 // AddRepository will add given repository to repoPool.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
-func (rp *RepoPool) AddRepository(repoConf RepositoryConfig) error {
+func (rp *RepoPool) AddRepository(repoConf repository.Config) error {
 	remoteURL := giturl.NormaliseURL(repoConf.Remote)
 	if repo, _ := rp.Repository(remoteURL); repo != nil {
 		return ErrExist
@@ -101,7 +102,7 @@ func (rp *RepoPool) AddRepository(repoConf RepositoryConfig) error {
 	rp.lock.Lock()
 	defer rp.lock.Unlock()
 
-	repo, err := NewRepository(repoConf, rp.commonENVs, rp.log)
+	repo, err := repository.New(repoConf, rp.commonENVs, rp.log)
 	if err != nil {
 		return err
 	}
@@ -155,7 +156,7 @@ func (rp *RepoPool) StartLoop() {
 }
 
 // Repository will return Repository object based on given remote URL
-func (rp *RepoPool) Repository(remote string) (*Repository, error) {
+func (rp *RepoPool) Repository(remote string) (*repository.Repository, error) {
 	gitURL, err := giturl.Parse(remote)
 	if err != nil {
 		return nil, err
@@ -165,7 +166,10 @@ func (rp *RepoPool) Repository(remote string) (*Repository, error) {
 	defer rp.lock.RUnlock()
 
 	for _, repo := range rp.repos {
-		if repo.gitURL.Equals(gitURL) {
+		// err can be ignored as remote string from repo object will always be valid
+		repoURL, _ := giturl.Parse(repo.Remote())
+
+		if repoURL.Equals(gitURL) {
 			return repo, nil
 		}
 	}
@@ -179,7 +183,7 @@ func (rp *RepoPool) RepositoriesRemote() []string {
 
 	var urls []string
 	for _, repo := range rp.repos {
-		urls = append(urls, repo.remote)
+		urls = append(urls, repo.Remote())
 	}
 	return urls
 }
@@ -191,13 +195,13 @@ func (rp *RepoPool) RepositoriesDirPath() []string {
 
 	var paths []string
 	for _, repo := range rp.repos {
-		paths = append(paths, repo.dir)
+		paths = append(paths, repo.Directory())
 	}
 	return paths
 }
 
 // AddWorktreeLink is wrapper around repositories AddWorktreeLink method
-func (rp *RepoPool) AddWorktreeLink(remote string, wt WorktreeConfig) error {
+func (rp *RepoPool) AddWorktreeLink(remote string, wt repository.WorktreeConfig) error {
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return err
@@ -212,17 +216,17 @@ func (rp *RepoPool) AddWorktreeLink(remote string, wt WorktreeConfig) error {
 	return repo.AddWorktreeLink(wt)
 }
 
-func (rp *RepoPool) validateLinkPath(repo *Repository, link string) error {
-	newAbsLink := absLink(repo.root, link)
+func (rp *RepoPool) validateLinkPath(repo *repository.Repository, link string) error {
+	newAbsLink := repo.AbsoluteLink(link)
 
 	rp.lock.RLock()
 	defer rp.lock.RUnlock()
 
 	for _, r := range rp.repos {
 		for _, wl := range r.WorktreeLinks() {
-			if wl.linkAbs == newAbsLink {
+			if wl.AbsoluteLink() == newAbsLink {
 				return fmt.Errorf("repo with overlapping abs link path found repo:%s path:%s",
-					r.gitURL.Repo, wl.linkAbs)
+					r.Remote(), wl.AbsoluteLink())
 			}
 		}
 	}
@@ -245,8 +249,8 @@ func (rp *RepoPool) RemoveRepository(remote string) error {
 	defer rp.lock.Unlock()
 
 	for i, repo := range rp.repos {
-		if repo.remote == remote {
-			rp.log.Info("removing repository mirror", "remote", repo.remote)
+		if repo.Remote() == remote {
+			rp.log.Info("removing repository mirror", "remote", repo.Remote)
 
 			rp.repos = slices.Delete(rp.repos, i, i+1)
 
@@ -254,12 +258,12 @@ func (rp *RepoPool) RemoveRepository(remote string) error {
 
 			// remove all published links
 			for _, wt := range repo.WorktreeLinks() {
-				if err := os.Remove(wt.linkAbs); err != nil {
+				if err := os.Remove(wt.AbsoluteLink()); err != nil {
 					rp.log.Error("unable to remove published link", "err", err)
 				}
 			}
 
-			return os.RemoveAll(repo.dir)
+			return os.RemoveAll(repo.Directory())
 		}
 	}
 
@@ -312,7 +316,7 @@ func (rp *RepoPool) Clone(ctx context.Context, remote, dst, branch string, paths
 }
 
 // MergeCommits is wrapper around repositories MergeCommits method
-func (rp *RepoPool) MergeCommits(ctx context.Context, remote, mergeCommitHash string) ([]CommitInfo, error) {
+func (rp *RepoPool) MergeCommits(ctx context.Context, remote, mergeCommitHash string) ([]repository.CommitInfo, error) {
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return nil, err
@@ -321,7 +325,7 @@ func (rp *RepoPool) MergeCommits(ctx context.Context, remote, mergeCommitHash st
 }
 
 // BranchCommits is wrapper around repositories BranchCommits method
-func (rp *RepoPool) BranchCommits(ctx context.Context, remote, branch string) ([]CommitInfo, error) {
+func (rp *RepoPool) BranchCommits(ctx context.Context, remote, branch string) ([]repository.CommitInfo, error) {
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return nil, err
@@ -330,7 +334,7 @@ func (rp *RepoPool) BranchCommits(ctx context.Context, remote, branch string) ([
 }
 
 // ListCommitsWithChangedFiles is wrapper around repositories ListCommitsWithChangedFiles method
-func (rp *RepoPool) ListCommitsWithChangedFiles(ctx context.Context, remote, ref1, ref2 string) ([]CommitInfo, error) {
+func (rp *RepoPool) ListCommitsWithChangedFiles(ctx context.Context, remote, ref1, ref2 string) ([]repository.CommitInfo, error) {
 	repo, err := rp.Repository(remote)
 	if err != nil {
 		return nil, err
