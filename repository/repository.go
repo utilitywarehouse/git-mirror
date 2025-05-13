@@ -65,6 +65,7 @@ type Repository struct {
 	running       bool                     // indicates if repository is running the mirror loop
 	workTreeLinks map[string]*WorkTreeLink // list of worktrees which will be maintained
 	stop, stopped chan bool                // chans to stop mirror loops
+	queueMirror   chan struct{}            // chan to queue mirror run
 	log           *slog.Logger
 
 	githubAppToken          string
@@ -140,6 +141,10 @@ func New(repoConf Config, gitExec string, envs []string, log *slog.Logger) (*Rep
 		workTreeLinks: make(map[string]*WorkTreeLink),
 		stop:          make(chan bool),
 		stopped:       make(chan bool),
+
+		// buffered chan so that run can be queued when mirror is already in progress
+		// and max only 1 job in queue is needed
+		queueMirror: make(chan struct{}, 1),
 	}
 
 	for _, wtc := range repoConf.Worktrees {
@@ -455,12 +460,26 @@ func (r *Repository) StartLoop(ctx context.Context) {
 		t := time.NewTimer(jitter(r.interval, 0.2))
 		select {
 		case <-t.C:
+		case <-r.queueMirror:
+			t.Stop()
+			r.log.Debug("triggering mirror")
 		case <-ctx.Done():
 			r.log.Info("context cancelled stopping mirror loop")
 			return
 		case <-r.stop:
 			return
 		}
+	}
+}
+
+// QueueMirrorRun will queue a mirror run on repository. If a mirror is already
+// in progress, another mirror will be triggered as soon as the current one completes.
+// If a run is already queued then new request will be ignored
+func (r *Repository) QueueMirrorRun() {
+	select {
+	case r.queueMirror <- struct{}{}:
+	default:
+		// mirror is already queued no action needed
 	}
 }
 

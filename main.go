@@ -76,6 +76,8 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\t-watch-config value       (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
 	fmt.Fprintf(os.Stderr, "\t-http-bind-address value  (default: ':9001') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
 	fmt.Fprintf(os.Stderr, "\t-one-time                 (default: 'false') Exit after first mirror. [$GIT_MIRROR_ONE_TIME]\n")
+	fmt.Fprintf(os.Stderr, "\t-github-webhook-secret    (default: '') The Github webhook secret used to validate payload [$GITHUB_WEBHOOK_SECRET]\n")
+	fmt.Fprintf(os.Stderr, "\t-github-webhook-path      (default: 'github-webhook') The path on which webserver will receive github webhook events [$GITHUB_WEBHOOK_PATH]\n")
 
 	os.Exit(2)
 }
@@ -87,6 +89,9 @@ func main() {
 	flagConfig := flag.String("config", envString("GIT_MIRROR_CONFIG", "/etc/git-mirror/config.yaml"), "Absolute path to the config file")
 	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
 	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":9001"), "The address the web server binds to")
+	flagGithubWhSecret := flag.String("github-webhook-secret", envString("GITHUB_WEBHOOK_SECRET", ""), "The Github webhook secret used to validate payload")
+	flagGithubWhPath := flag.String("github-webhook-path", envString("GITHUB_WEBHOOK_PATH", "github-webhook"), "The path on which webserver will receive github webhook events")
+
 	flagOneTime := flag.Bool("one-time", envBool("GIT_MIRROR_ONE_TIME", false), "Exit after first mirror")
 	flagVersion := flag.Bool("version", false, "git-mirror version")
 
@@ -110,23 +115,6 @@ func main() {
 
 	repository.EnableMetrics("", prometheus.NewRegistry())
 	prometheus.MustRegister(configSuccess, configSuccessTime)
-
-	server := &http.Server{
-		Addr:              *flagHttpBind,
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       5 * time.Second,
-		ReadHeaderTimeout: 1 * time.Second,
-	}
-
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
-	server.Handler = mux
 
 	conf, err := parseConfigFile(*flagConfig)
 	if err != nil {
@@ -175,6 +163,36 @@ func main() {
 
 	// Start watching the config file
 	go WatchConfig(ctx, *flagConfig, *flagWatchConfig, 10*time.Second, onConfigChange)
+
+	// setup webhook and metrics server
+	wh := &GithubWebhookHandler{
+		repoPool: repoPool,
+		log:      logger.With("logger", "github-webhook"),
+		secret:   *flagGithubWhSecret,
+	}
+
+	server := &http.Server{
+		Addr:              *flagHttpBind,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       5 * time.Second,
+		ReadHeaderTimeout: 1 * time.Second,
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
+	// register handler only if secret is set
+	if flagGithubWhSecret != nil && *flagGithubWhSecret != "" {
+		mux.Handle(*flagGithubWhPath, wh)
+	}
+
+	server.Handler = mux
 
 	go func() {
 		logger.Info("starting web server", "add", *flagHttpBind)

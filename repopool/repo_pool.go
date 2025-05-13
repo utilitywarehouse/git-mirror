@@ -143,6 +143,17 @@ func (rp *RepoPool) Mirror(ctx context.Context, remote string) error {
 	return repo.Mirror(ctx)
 }
 
+// QueueMirrorRun is wrapper around repositories QueueMirrorRun method
+func (rp *RepoPool) QueueMirrorRun(remote string) error {
+	repo, err := rp.Repository(remote)
+	if err != nil {
+		return err
+	}
+
+	repo.QueueMirrorRun()
+	return nil
+}
+
 // StartLoop will start mirror loop on all repositories
 // if its not already started
 func (rp *RepoPool) StartLoop() {
