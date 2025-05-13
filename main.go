@@ -77,7 +77,7 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\t-http-bind-address value  (default: ':9001') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
 	fmt.Fprintf(os.Stderr, "\t-one-time                 (default: 'false') Exit after first mirror. [$GIT_MIRROR_ONE_TIME]\n")
 	fmt.Fprintf(os.Stderr, "\t-github-webhook-secret    (default: '') The Github webhook secret used to validate payload [$GITHUB_WEBHOOK_SECRET]\n")
-	fmt.Fprintf(os.Stderr, "\t-github-webhook-path      (default: 'github-webhook') The path on which webserver will receive github webhook events [$GITHUB_WEBHOOK_PATH]\n")
+	fmt.Fprintf(os.Stderr, "\t-github-webhook-path      (default: '/github-webhook') The path on which webserver will receive github webhook events [$GITHUB_WEBHOOK_PATH]\n")
 
 	os.Exit(2)
 }
@@ -90,7 +90,7 @@ func main() {
 	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
 	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":9001"), "The address the web server binds to")
 	flagGithubWhSecret := flag.String("github-webhook-secret", envString("GITHUB_WEBHOOK_SECRET", ""), "The Github webhook secret used to validate payload")
-	flagGithubWhPath := flag.String("github-webhook-path", envString("GITHUB_WEBHOOK_PATH", "github-webhook"), "The path on which webserver will receive github webhook events")
+	flagGithubWhPath := flag.String("github-webhook-path", envString("GITHUB_WEBHOOK_PATH", "/github-webhook"), "The path on which webserver will receive github webhook events")
 
 	flagOneTime := flag.Bool("one-time", envBool("GIT_MIRROR_ONE_TIME", false), "Exit after first mirror")
 	flagVersion := flag.Bool("version", false, "git-mirror version")
