@@ -98,7 +98,7 @@ func (wh *GithubWebhookHandler) computeHMAC(message []byte, secret string) strin
 func (wh *GithubWebhookHandler) processPushEvent(event GitHubEvent) {
 	err := wh.repoPool.QueueMirrorRun(event.Repository.HtmlURL)
 	if err != nil {
-		if err == repopool.ErrNotExist {
+		if errors.Is(err, repopool.ErrNotExist) {
 			return
 		}
 		wh.log.Error("unable to process push event", "repo", event.Repository.HtmlURL, "err", err)
