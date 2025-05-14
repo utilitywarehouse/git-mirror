@@ -113,7 +113,7 @@ func TestNewRepo(t *testing.T) {
 				t.Errorf("NewRepository() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if diff := cmp.Diff(tt.want, got, cmpopts.IgnoreFields(Repository{}, "log", "lock", "stop", "stopped"), cmp.AllowUnexported(Repository{}, giturl.URL{})); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.IgnoreFields(Repository{}, "log", "lock", "stop", "stopped", "queueMirror"), cmp.AllowUnexported(Repository{}, giturl.URL{})); diff != "" {
 				t.Errorf("NewRepository() mismatch (-want +got):\n%s", diff)
 			}
 		})
