@@ -451,13 +451,16 @@ func (r *Repository) StartLoop(ctx context.Context) {
 	}()
 
 	for {
+		// to avoid concurrent fetches on events or restarts
+		time.Sleep(jitter(r.interval, 0.2))
+
 		// to stop mirror running indefinitely we will use time-out
 		mCtx, cancel := context.WithTimeout(ctx, r.mirrorTimeout)
 		err := r.Mirror(mCtx)
 		cancel()
 		recordGitMirror(r.gitURL.Repo, err == nil)
 
-		t := time.NewTimer(jitter(r.interval, 0.2))
+		t := time.NewTimer(r.interval)
 		select {
 		case <-t.C:
 		case <-r.queueMirror:

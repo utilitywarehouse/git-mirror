@@ -189,6 +189,7 @@ func main() {
 
 	// register handler only if secret is set
 	if flagGithubWhSecret != nil && *flagGithubWhSecret != "" {
+		logger.Info("registering github webhook", "path", *flagGithubWhPath)
 		mux.Handle(*flagGithubWhPath, wh)
 	}
 
