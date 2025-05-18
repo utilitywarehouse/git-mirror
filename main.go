@@ -71,13 +71,14 @@ func usage() {
 	fmt.Fprintf(os.Stderr, "\nUsage:\n")
 	fmt.Fprintf(os.Stderr, "\tgit-mirror [global options]\n")
 	fmt.Fprintf(os.Stderr, "\nGLOBAL OPTIONS:\n")
-	fmt.Fprintf(os.Stderr, "\t-log-level value          (default: 'info') Log level [$LOG_LEVEL]\n")
-	fmt.Fprintf(os.Stderr, "\t-config value             (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]\n")
-	fmt.Fprintf(os.Stderr, "\t-watch-config value       (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
-	fmt.Fprintf(os.Stderr, "\t-http-bind-address value  (default: ':9001') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
-	fmt.Fprintf(os.Stderr, "\t-one-time                 (default: 'false') Exit after first mirror. [$GIT_MIRROR_ONE_TIME]\n")
-	fmt.Fprintf(os.Stderr, "\t-github-webhook-secret    (default: '') The Github webhook secret used to validate payload [$GITHUB_WEBHOOK_SECRET]\n")
-	fmt.Fprintf(os.Stderr, "\t-github-webhook-path      (default: '/github-webhook') The path on which webserver will receive github webhook events [$GITHUB_WEBHOOK_PATH]\n")
+	fmt.Fprintf(os.Stderr, "\t-log-level value            (default: 'info') Log level [$LOG_LEVEL]\n")
+	fmt.Fprintf(os.Stderr, "\t-config value               (default: '/etc/git-mirror/config.yaml') Absolute path to the config file. [$GIT_MIRROR_CONFIG]\n")
+	fmt.Fprintf(os.Stderr, "\t-watch-config value         (default: true) watch config for changes and reload when changes encountered. [$GIT_MIRROR_WATCH_CONFIG]\n")
+	fmt.Fprintf(os.Stderr, "\t-http-bind-address value    (default: ':9001') The address the web server binds to. [$GIT_MIRROR_HTTP_BIND]\n")
+	fmt.Fprintf(os.Stderr, "\t-one-time                   (default: 'false') Exit after first mirror. [$GIT_MIRROR_ONE_TIME]\n")
+	fmt.Fprintf(os.Stderr, "\t-github-webhook-secret      (default: '') The Github webhook secret used to validate payload [$GITHUB_WEBHOOK_SECRET]\n")
+	fmt.Fprintf(os.Stderr, "\t-github-skip-sig-validation (default: false) If set github webhook signature validation will be skipped [$GITHUB_SKIP_SIG_VALIDATION]\n")
+	fmt.Fprintf(os.Stderr, "\t-github-webhook-path        (default: '/github-webhook') The path on which webserver will receive github webhook events [$GITHUB_WEBHOOK_PATH]\n")
 
 	os.Exit(2)
 }
@@ -90,6 +91,7 @@ func main() {
 	flagWatchConfig := flag.Bool("watch-config", envBool("GIT_MIRROR_WATCH_CONFIG", true), "watch config for changes and reload when changes encountered")
 	flagHttpBind := flag.String("http-bind-address", envString("GIT_MIRROR_HTTP_BIND", ":9001"), "The address the web server binds to")
 	flagGithubWhSecret := flag.String("github-webhook-secret", envString("GITHUB_WEBHOOK_SECRET", ""), "The Github webhook secret used to validate payload")
+	flagGithubWhSkipValidation := flag.Bool("github-skip-sig-validation", envBool("GITHUB_SKIP_SIG_VALIDATION", false), "If set github webhook signature validation will be skipped")
 	flagGithubWhPath := flag.String("github-webhook-path", envString("GITHUB_WEBHOOK_PATH", "/github-webhook"), "The path on which webserver will receive github webhook events")
 
 	flagOneTime := flag.Bool("one-time", envBool("GIT_MIRROR_ONE_TIME", false), "Exit after first mirror")
@@ -166,9 +168,10 @@ func main() {
 
 	// setup webhook and metrics server
 	wh := &GithubWebhookHandler{
-		repoPool: repoPool,
-		log:      logger.With("logger", "github-webhook"),
-		secret:   *flagGithubWhSecret,
+		repoPool:          repoPool,
+		log:               logger.With("logger", "github-webhook"),
+		secret:            *flagGithubWhSecret,
+		skipSigValidation: *flagGithubWhSkipValidation,
 	}
 
 	server := &http.Server{
@@ -187,8 +190,8 @@ func main() {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-	// register handler only if secret is set
-	if flagGithubWhSecret != nil && *flagGithubWhSecret != "" {
+	// register handler if skip validation flag is set or secret is set
+	if *flagGithubWhSkipValidation || *flagGithubWhSecret != "" {
 		mux.Handle(*flagGithubWhPath, wh)
 	}
 
