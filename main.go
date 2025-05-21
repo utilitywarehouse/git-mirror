@@ -190,7 +190,7 @@ func main() {
 	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
 	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 
-	// register handler only if secret is set
+	// register handler if skip validation flag is set or secret is set
 	if *flagGithubWhSkipValidation || *flagGithubWhSecret != "" {
 		logger.Info("registering github webhook", "path", *flagGithubWhPath)
 		mux.Handle(*flagGithubWhPath, wh)
