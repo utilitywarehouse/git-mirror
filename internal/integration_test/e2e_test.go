@@ -1297,13 +1297,13 @@ func Test_mirror_loop(t *testing.T) {
 
 	go repo.StartLoop(txtCtx)
 
-	time.Sleep(testInterval)
+	time.Sleep(testInterval + time.Second)
 	if repo.IsRunning() != true {
 		t.Errorf("repo running state is still false after starting mirror loop")
 	}
 
 	// wait for the mirror
-	time.Sleep(testInterval)
+	time.Sleep(testInterval + time.Second)
 
 	// verify checkout files
 	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
@@ -1314,7 +1314,7 @@ func Test_mirror_loop(t *testing.T) {
 	mustCommit(t, upstream, "file", t.Name()+"-2")
 
 	// wait for the mirror
-	time.Sleep(testInterval)
+	time.Sleep(testInterval + time.Second)
 
 	assertLinkedFile(t, root, link1, "file", t.Name()+"-2")
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-2")
@@ -1324,7 +1324,7 @@ func Test_mirror_loop(t *testing.T) {
 	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
 
 	// wait for the mirror
-	time.Sleep(testInterval)
+	time.Sleep(testInterval + time.Second)
 
 	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
 	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
@@ -1577,7 +1577,7 @@ func Test_RepoPool_Error(t *testing.T) {
 	// start mirror loop
 	rp.StartLoop()
 
-	time.Sleep(time.Second)
+	time.Sleep(2 * time.Second)
 
 	// verify Hash and checked out files
 	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
