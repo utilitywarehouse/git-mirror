@@ -192,6 +192,7 @@ func main() {
 
 	// register handler if skip validation flag is set or secret is set
 	if *flagGithubWhSkipValidation || *flagGithubWhSecret != "" {
+		logger.Info("registering github webhook", "path", *flagGithubWhPath)
 		mux.Handle(*flagGithubWhPath, wh)
 	}
 
