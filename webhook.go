@@ -32,9 +32,10 @@ type GitHubEvent struct {
 }
 
 type GithubWebhookHandler struct {
-	repoPool *repopool.RepoPool
-	secret   string
-	log      *slog.Logger
+	repoPool          *repopool.RepoPool
+	secret            string
+	skipSigValidation bool
+	log               *slog.Logger
 }
 
 func (wh *GithubWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -50,10 +51,12 @@ func (wh *GithubWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if !wh.isValidSignature(body, r.Header.Get("X-Hub-Signature-256")) {
-		wh.log.Error("invalid signature")
-		w.WriteHeader(http.StatusBadRequest)
-		return
+	if !wh.skipSigValidation {
+		if !wh.isValidSignature(body, r.Header.Get("X-Hub-Signature-256")) {
+			wh.log.Error("invalid signature")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 	}
 
 	event := r.Header.Get("X-GitHub-Event")
@@ -81,6 +84,9 @@ func (wh *GithubWebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 func (wh *GithubWebhookHandler) isValidSignature(message []byte, signature string) bool {
+	if signature == "" {
+		return false
+	}
 	return hmac.Equal([]byte(signature), []byte(wh.computeHMAC(message, wh.secret)))
 }
 
