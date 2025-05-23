@@ -57,8 +57,6 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 	t.Log("TEST-2: forward HEAD")
 	fileSHA2 := mustCommit(t, upstream, "file", testName+"-2")
 
-	time.Sleep(2 * time.Second)
-
 	t.Run("clone-test", func(t *testing.T) {
 		wg := &sync.WaitGroup{}
 		// all following assertions will always be true
@@ -172,7 +170,7 @@ func Test_mirror_detect_race_slow_fetch(t *testing.T) {
 
 				ctx := context.Background()
 
-				time.Sleep(2 * time.Second) // wait for repo.Mirror to grab lock
+				time.Sleep(time.Second) // wait for repo.Mirror to grab lock
 
 				gotHash, err := repo.Hash(ctx, "HEAD", "")
 				if err != nil {
@@ -317,7 +315,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 
 				go func() {
 					for {
-						time.Sleep(2 * time.Second)
+						time.Sleep(time.Second)
 						select {
 						case <-ctx.Done():
 							close(readStopped)
@@ -388,7 +386,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 				// start loop to trigger read on repo pool
 				go func() {
 					for {
-						time.Sleep(2 * time.Second)
+						time.Sleep(time.Second)
 						select {
 						case <-ctx.Done():
 							close(readStopped)

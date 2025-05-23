@@ -131,7 +131,7 @@ func updatedRefs(output string) []string {
 	return refs
 }
 
-// jitter returns a time.Duration between duration and duration + maxFactor * duration.
+// jitter returns a time.Duration between duration and maxFactor * duration.
 func jitter(duration time.Duration, maxFactor float64) time.Duration {
-	return duration + time.Duration(rand.Float64()*maxFactor*float64(duration))
+	return time.Duration(rand.Float64() * maxFactor * float64(duration))
 }
