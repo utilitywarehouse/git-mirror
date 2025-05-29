@@ -145,6 +145,11 @@ func ensureConfig(repoPool *repopool.RepoPool, newConfig *repopool.Config) bool 
 				success = false
 			}
 		}
+
+		// create new worktrees
+		if len(newWTs) > 0 {
+			repo.QueueMirrorRun()
+		}
 	}
 
 	// start mirror Loop on newly added repos
