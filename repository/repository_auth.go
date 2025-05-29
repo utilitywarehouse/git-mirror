@@ -122,7 +122,7 @@ func (r *Repository) getGithubAppToken(ctx context.Context, repo string) (string
 	r.githubAppToken = token.Token
 	r.githubAppTokenExpiresAt = token.ExpiresAt
 
-	r.log.Info("new github app access token created")
+	r.log.Debug("new github app access token created")
 
 	return r.githubAppToken, nil
 }
