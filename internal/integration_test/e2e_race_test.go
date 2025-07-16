@@ -57,6 +57,8 @@ func Test_mirror_detect_race_clone(t *testing.T) {
 	t.Log("TEST-2: forward HEAD")
 	fileSHA2 := mustCommit(t, upstream, "file", testName+"-2")
 
+	time.Sleep(3 * time.Second) // wait for repo.Mirror to grab lock
+
 	t.Run("clone-test", func(t *testing.T) {
 		wg := &sync.WaitGroup{}
 		// all following assertions will always be true
