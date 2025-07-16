@@ -542,9 +542,7 @@ func (r *Repository) Mirror(ctx context.Context) error {
 		return wtError
 	}
 
-	if err := r.cleanup(ctx); err != nil {
-		r.log.Error("unable to cleanup repo", "err", err)
-	}
+	r.cleanup(ctx)
 
 	r.log.Debug("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))
 	return nil
@@ -893,26 +891,29 @@ func (r *Repository) removeWorktree(ctx context.Context, path string) error {
 }
 
 // cleanup removes old worktrees and runs git's garbage collection.
-func (r *Repository) cleanup(ctx context.Context) error {
-	var cleanupErrs []error
+func (r *Repository) cleanup(ctx context.Context) bool {
+	var success bool
 
 	// Clean up stale worktrees and links.
 	r.removeStaleWorktreeLinks()
 
 	if _, err := r.removeStaleWorktrees(); err != nil {
-		cleanupErrs = append(cleanupErrs, err)
+		r.log.Error("cleanup: unable to remove stale worktree", "err", err)
+		success = false
 	}
 
 	// Let git know we don't need those old commits any more.
 	// git worktree prune -v
 	if _, err := r.git(ctx, nil, "", "worktree", "prune", "--verbose"); err != nil {
-		cleanupErrs = append(cleanupErrs, err)
+		r.log.Error("cleanup: git worktree prune failed", "err", err)
+		success = false
 	}
 
 	// Expire old refs.
 	// git reflog expire --expire-unreachable=all --all
 	if _, err := r.git(ctx, nil, "", "reflog", "expire", "--expire-unreachable=all", "--all"); err != nil {
-		cleanupErrs = append(cleanupErrs, err)
+		r.log.Error("cleanup: git reflog failed", "err", err)
+		success = false
 	}
 
 	// Run GC if needed.
@@ -927,14 +928,12 @@ func (r *Repository) cleanup(ctx context.Context) error {
 			args = append(args, "--aggressive")
 		}
 		if _, err := r.git(ctx, nil, "", args...); err != nil {
-			cleanupErrs = append(cleanupErrs, err)
+			r.log.Error("cleanup: git gc failed", "err", err)
+			success = false
 		}
 	}
 
-	if len(cleanupErrs) > 0 {
-		return fmt.Errorf("%s", cleanupErrs)
-	}
-	return nil
+	return success
 }
 
 // removeStaleWorktreeLinks will clear stale links by comparing links in config
