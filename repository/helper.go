@@ -73,6 +73,22 @@ func publishSymlink(linkPath string, targetPath string) error {
 	return nil
 }
 
+// readlinkAbs returns the destination of the named symbolic link.
+// If the link destination is relative, it will resolve it to an absolute one.
+func readlinkAbs(linkPath string) (string, error) {
+	dst, err := os.Readlink(linkPath)
+	if err != nil {
+		return "", err
+	}
+
+	if filepath.IsAbs(dst) {
+		return dst, nil
+	} else {
+		// Symlink targets are relative to the directory containing the link.
+		return filepath.Join(filepath.Dir(linkPath), dst), nil
+	}
+}
+
 // removeDirContents iterated the specified dir and removes all contents
 func removeDirContents(dir string, log *slog.Logger) error {
 	return removeDirContentsIf(dir, log, func(fi os.FileInfo) (bool, error) {

@@ -824,8 +824,8 @@ func (r *Repository) ensureWorktreeLink(wl *WorkTreeLink) error {
 	// this will be used by cleanup process to remove target symlink if
 	// worktree is removed
 	var tracker = wl.dir + tracerSuffix
-	trackedLink, _ := os.Readlink(tracker)
-	if wl.linkAbs != filepath.Join(filepath.Dir(tracker), trackedLink) {
+	trackedDstLink, _ := readlinkAbs(tracker)
+	if wl.linkAbs != trackedDstLink {
 		if err = publishSymlink(wl.dir+tracerSuffix, wl.linkAbs); err != nil {
 			return fmt.Errorf("unable to publish link tracking symlink err:%w", err)
 		}
@@ -895,7 +895,7 @@ func (r *Repository) cleanup(ctx context.Context) bool {
 	var success bool
 
 	// Clean up stale worktrees and links.
-	r.removeStaleWorktreeLinks()
+	success = r.removeStaleWorktreeLinks()
 
 	if _, err := r.removeStaleWorktrees(); err != nil {
 		r.log.Error("cleanup: unable to remove stale worktree", "err", err)
@@ -961,33 +961,40 @@ func (r *Repository) removeStaleWorktreeLinks() bool {
 
 		if strings.HasSuffix(fi.Name(), tracerSuffix) {
 			tracker := filepath.Join(r.worktreesRoot(), fi.Name())
-			link, err := os.Readlink(tracker)
+			trackedDstLink, err := readlinkAbs(tracker)
 			if err != nil {
 				r.log.Error("unable to read link tracking symlink", "file", fi.Name(), "err", err)
 				success = false
 				continue
 			}
-			// link destination is always relative to tracker so convert to abs
-			onDiskTrackedLinks[tracker] = filepath.Join(filepath.Dir(tracker), link)
+			onDiskTrackedLinks[tracker] = trackedDstLink
 		}
 	}
 
-	for tracker, trackedLink := range onDiskTrackedLinks {
-		if slices.Contains(configLinks, trackedLink) {
+	for tracker, trackedDstLink := range onDiskTrackedLinks {
+		if slices.Contains(configLinks, trackedDstLink) {
 			continue
 		}
-		if err := os.Remove(trackedLink); err != nil {
-			r.log.Error("unable to remove stale published link", "link", trackedLink, "err", err)
-			success = false
-			continue
+
+		// read link of  tracked dst file and confirm its a actually pointing
+		// to the stale worktree
+		if wtPath, err := readlinkAbs(trackedDstLink); err == nil {
+			if wtPath == strings.TrimSuffix(tracker, tracerSuffix) {
+				if err := os.Remove(trackedDstLink); err != nil {
+					r.log.Error("unable to remove stale published link", "link", trackedDstLink, "err", err)
+					success = false
+					continue
+				}
+			}
 		}
+
 		if err := os.Remove(tracker); err != nil {
-			r.log.Error("unable to remove stale link tracker file", "tracker", tracker, "trackedLink", trackedLink, "err", err)
+			r.log.Error("unable to remove stale link tracker file", "tracker", tracker, "trackedLink", trackedDstLink, "err", err)
 			success = false
 			continue
 		}
 
-		r.log.Info("stale link removed", "link", trackedLink)
+		r.log.Info("stale link removed", "link", trackedDstLink)
 	}
 
 	return success
