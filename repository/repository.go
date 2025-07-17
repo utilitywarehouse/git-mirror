@@ -24,13 +24,12 @@ const (
 	defaultDirMode     fs.FileMode = os.FileMode(0755) // 'rwxr-xr-x'
 	defaultRefSpec                 = "+refs/*:refs/*"
 	MinAllowedInterval             = time.Second
+	tracerSuffix                   = "-link-tracker"
 )
 
 var (
 	ErrRepoMirrorFailed   = errors.New("repository mirror failed")
 	ErrRepoWTUpdateFailed = errors.New("repository worktree update failed")
-
-	staleTimeout time.Duration = 10 * time.Second // time for stale worktrees to be cleaned up
 
 	// to parse output of "git ls-remote --symref origin HEAD"
 	// ref: refs/heads/xxxx  HEAD
@@ -524,23 +523,29 @@ func (r *Repository) Mirror(ctx context.Context) error {
 	// so always ensure worktree even if nothing fetched.
 	// continue on error to make sync process more resilient
 	for _, wl := range r.workTreeLinks {
-		if err := r.ensureWorktreeLink(ctx, wl); err != nil {
-			r.log.Error("unable to ensure worktree links", "err", err)
+		if err := r.ensureWorktree(ctx, wl); err != nil {
+			r.log.Error("unable to ensure worktree", "link", wl.link, "err", err)
+			wtError = ErrRepoWTUpdateFailed
+		}
+	}
+	// ensure links after all worktrees are checked out for atomic changes
+	for _, wl := range r.workTreeLinks {
+		if err := r.ensureWorktreeLink(wl); err != nil {
+			r.log.Error("unable to ensure worktree links", "link", wl.link, "err", err)
 			wtError = ErrRepoWTUpdateFailed
 		}
 	}
 
-	// clean-up can be skipped
-	if len(refs) == 0 {
+	// in case of worktree error skip clean-up as it might remove existing
+	// linked worktree which might not be desired
+	if wtError != nil {
 		return wtError
 	}
 
-	if err := r.cleanup(ctx); err != nil {
-		r.log.Error("unable to cleanup repo", "err", err)
-	}
+	r.cleanup(ctx)
 
 	r.log.Debug("mirror cycle complete", "time", time.Since(start), "fetch-time", fetchTime, "updated-refs", len(refs))
-	return wtError
+	return nil
 }
 
 // RemoveWorktreeLink removes workTree link from the mirror repository.
@@ -549,28 +554,9 @@ func (r *Repository) RemoveWorktreeLink(link string) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	wl, ok := r.workTreeLinks[link]
-	if !ok {
-		return fmt.Errorf("worktree with given link not found")
-	}
-
-	defer func() {
-		// remove worktree link from repo object
-		delete(r.workTreeLinks, link)
-		// remove published link
-		if err := os.Remove(wl.linkAbs); err != nil {
-			r.log.Error("unable to remove published link", "err", err)
-		}
-	}()
-
-	wtPath, err := wl.currentWorktree()
-	if err != nil {
-		return err
-	}
-
-	if err := r.removeWorktree(context.TODO(), wtPath); err != nil {
-		return err
-	}
+	// To ensure atomic changes only remove link from the config, actual link
+	// and worktree will be removed as part for mirror loop in cleanup process.
+	delete(r.workTreeLinks, link)
 
 	return nil
 }
@@ -763,9 +749,8 @@ func (r *Repository) hash(ctx context.Context, ref, path string) (string, error)
 	return r.git(ctx, nil, "", args...)
 }
 
-// ensureWorktreeLink will create / validate worktrees
-// it will remove worktree if tracking ref is removed from the remote
-func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) error {
+// ensureWorktree will create / validate worktrees
+func (r *Repository) ensureWorktree(ctx context.Context, wl *WorkTreeLink) error {
 	// get remote hash from mirrored repo for the worktree link
 	remoteHash, err := r.hash(ctx, wl.ref, "")
 	if err != nil {
@@ -778,18 +763,18 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 		return fmt.Errorf("hash not found for given ref:%s for worktree:%s", wl.ref, wl.link)
 	}
 
-	var currentHash, currentPath string
+	var currentHash string
 
 	// we do not care if we cant get old worktree path as we can create it
-	currentPath, err = wl.currentWorktree()
+	wl.dir, err = wl.currentWorktree()
 	if err != nil {
 		// in case of error we create new worktree
 		wl.log.Error("unable to get current worktree path", "err", err)
 	}
 
-	if currentPath != "" {
+	if wl.dir != "" {
 		// get hash from the worktree folder
-		currentHash, err = r.workTreeHash(ctx, wl, currentPath)
+		currentHash, err = r.workTreeHash(ctx, wl, wl.dir)
 		if err != nil {
 			// in case of error we create new worktree
 			wl.log.Error("unable to get current worktree hash", "err", err)
@@ -800,7 +785,7 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 		if r.sanityCheckWorktree(ctx, wl) {
 			return nil
 		}
-		wl.log.Error("worktree failed checks, re-creating...", "path", currentPath)
+		wl.log.Error("worktree failed checks, re-creating...", "path", wl.dir)
 	}
 
 	wl.log.Info("worktree update required", "remoteHash", remoteHash, "currentHash", currentHash)
@@ -808,16 +793,41 @@ func (r *Repository) ensureWorktreeLink(ctx context.Context, wl *WorkTreeLink) e
 	if err != nil {
 		return fmt.Errorf("unable to create worktree for '%s' err:%w", wl.link, err)
 	}
+	// swap dir path on success
+	wl.dir = newPath
 
-	if err = publishSymlink(wl.linkAbs, newPath); err != nil {
-		return fmt.Errorf("unable to publish symlink err:%w", err)
+	return nil
+}
+
+// ensureWorktreeLink will create/update worktree links
+func (r *Repository) ensureWorktreeLink(wl *WorkTreeLink) error {
+	if wl.dir == "" {
+		return fmt.Errorf("worktree's checkout dir path not set")
 	}
 
-	// since we use hash to create worktree path it is possible that we
-	// may have re-created current worktree
-	if currentPath != "" && currentPath != newPath {
-		if err := r.removeWorktree(ctx, currentPath); err != nil {
-			wl.log.Error("unable to remove old worktree", "err", err)
+	// read symlink path of the given worktree link
+	currentPath, err := wl.currentWorktree()
+	if err != nil {
+		// in case of error we create new worktree
+		return fmt.Errorf("unable to get current worktree path err:%w", err)
+	}
+
+	if currentPath != wl.dir {
+		// publish worktree to given symlink target
+		if err = publishSymlink(wl.linkAbs, wl.dir); err != nil {
+			return fmt.Errorf("unable to publish link err:%w", err)
+		}
+		wl.log.Info("publishing worktree link", "link", wl.link, "linkAbs", wl.linkAbs)
+	}
+
+	// create symlink in worktree root to keep track of target symlink
+	// this will be used by cleanup process to remove target symlink if
+	// worktree is removed
+	var tracker = wl.dir + tracerSuffix
+	trackedDstLink, _ := readlinkAbs(tracker)
+	if wl.linkAbs != trackedDstLink {
+		if err = publishSymlink(wl.dir+tracerSuffix, wl.linkAbs); err != nil {
+			return fmt.Errorf("unable to publish link tracking symlink err:%w", err)
 		}
 	}
 	return nil
@@ -881,24 +891,29 @@ func (r *Repository) removeWorktree(ctx context.Context, path string) error {
 }
 
 // cleanup removes old worktrees and runs git's garbage collection.
-func (r *Repository) cleanup(ctx context.Context) error {
-	var cleanupErrs []error
+func (r *Repository) cleanup(ctx context.Context) bool {
+	var success bool
 
-	// Clean up previous worktree(s).
+	// Clean up stale worktrees and links.
+	success = r.removeStaleWorktreeLinks()
+
 	if _, err := r.removeStaleWorktrees(); err != nil {
-		cleanupErrs = append(cleanupErrs, err)
+		r.log.Error("cleanup: unable to remove stale worktree", "err", err)
+		success = false
 	}
 
 	// Let git know we don't need those old commits any more.
 	// git worktree prune -v
 	if _, err := r.git(ctx, nil, "", "worktree", "prune", "--verbose"); err != nil {
-		cleanupErrs = append(cleanupErrs, err)
+		r.log.Error("cleanup: git worktree prune failed", "err", err)
+		success = false
 	}
 
 	// Expire old refs.
 	// git reflog expire --expire-unreachable=all --all
 	if _, err := r.git(ctx, nil, "", "reflog", "expire", "--expire-unreachable=all", "--all"); err != nil {
-		cleanupErrs = append(cleanupErrs, err)
+		r.log.Error("cleanup: git reflog failed", "err", err)
+		success = false
 	}
 
 	// Run GC if needed.
@@ -913,14 +928,76 @@ func (r *Repository) cleanup(ctx context.Context) error {
 			args = append(args, "--aggressive")
 		}
 		if _, err := r.git(ctx, nil, "", args...); err != nil {
-			cleanupErrs = append(cleanupErrs, err)
+			r.log.Error("cleanup: git gc failed", "err", err)
+			success = false
 		}
 	}
 
-	if len(cleanupErrs) > 0 {
-		return fmt.Errorf("%s", cleanupErrs)
+	return success
+}
+
+// removeStaleWorktreeLinks will clear stale links by comparing links in config
+// and tracker links on disk.
+func (r *Repository) removeStaleWorktreeLinks() bool {
+	success := true
+	var configLinks []string
+
+	for _, wl := range r.workTreeLinks {
+		configLinks = append(configLinks, wl.linkAbs)
 	}
-	return nil
+
+	// map of abs path of tracker to the abs path of its link
+	onDiskTrackedLinks := make(map[string]string)
+	dirents, err := os.ReadDir(r.worktreesRoot())
+	if err != nil {
+		r.log.Error("unable to read link worktree root dir", "err", err)
+		return false
+	}
+
+	for _, fi := range dirents {
+		if fi.IsDir() {
+			continue
+		}
+
+		if strings.HasSuffix(fi.Name(), tracerSuffix) {
+			tracker := filepath.Join(r.worktreesRoot(), fi.Name())
+			trackedDstLink, err := readlinkAbs(tracker)
+			if err != nil {
+				r.log.Error("unable to read link tracking symlink", "file", fi.Name(), "err", err)
+				success = false
+				continue
+			}
+			onDiskTrackedLinks[tracker] = trackedDstLink
+		}
+	}
+
+	for tracker, trackedDstLink := range onDiskTrackedLinks {
+		if slices.Contains(configLinks, trackedDstLink) {
+			continue
+		}
+
+		// read link of  tracked dst file and confirm its a actually pointing
+		// to the stale worktree
+		if wtPath, err := readlinkAbs(trackedDstLink); err == nil {
+			if wtPath == strings.TrimSuffix(tracker, tracerSuffix) {
+				if err := os.Remove(trackedDstLink); err != nil {
+					r.log.Error("unable to remove stale published link", "link", trackedDstLink, "err", err)
+					success = false
+					continue
+				}
+			}
+		}
+
+		if err := os.Remove(tracker); err != nil {
+			r.log.Error("unable to remove stale link tracker file", "tracker", tracker, "trackedLink", trackedDstLink, "err", err)
+			success = false
+			continue
+		}
+
+		r.log.Info("stale link removed", "link", trackedDstLink)
+	}
+
+	return success
 }
 
 func (r *Repository) removeStaleWorktrees() (int, error) {
@@ -935,15 +1012,16 @@ func (r *Repository) removeStaleWorktrees() (int, error) {
 		if t != "" {
 			_, wtDir := utils.SplitAbs(t)
 			currentWTDirs = append(currentWTDirs, wtDir)
+			currentWTDirs = append(currentWTDirs, wtDir+tracerSuffix)
 		}
 	}
 
 	count := 0
 	err := removeDirContentsIf(r.worktreesRoot(), r.log, func(fi os.FileInfo) (bool, error) {
-		// delete files that are over the stale time out, and make sure to never delete the current worktree
-		if !slices.Contains(currentWTDirs, fi.Name()) && time.Since(fi.ModTime()) > staleTimeout {
+		// only keep files related to current worktrees
+		if !slices.Contains(currentWTDirs, fi.Name()) {
 			count++
-			r.log.Info("removing stale worktree", "worktree", fi.Name())
+			r.log.Info("removing stale file/folder", "worktree", fi.Name())
 			return true, nil
 		}
 		return false, nil

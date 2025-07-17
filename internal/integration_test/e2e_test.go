@@ -225,10 +225,18 @@ func Test_mirror_head_and_main(t *testing.T) {
 	if err := repo.RemoveWorktreeLink(link2); err != nil {
 		t.Errorf("unable to remove worktree error: %v", err)
 	}
+	// run mirror loop to remove links
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
 	assertMissingLink(t, root, link2)
 
 	if err := repo.RemoveWorktreeLink(link1); err != nil {
 		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	// run mirror loop to remove links
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
 	}
 	assertMissingLink(t, root, link1)
 }
@@ -331,10 +339,18 @@ func Test_mirror_other_branch(t *testing.T) {
 	if err := repo.RemoveWorktreeLink(link2); err != nil {
 		t.Errorf("unable to remove worktree error: %v", err)
 	}
+	// run mirror loop to remove links
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
+	}
 	assertMissingLink(t, root, link2)
 
 	if err := repo.RemoveWorktreeLink(link1); err != nil {
 		t.Errorf("unable to remove worktree error: %v", err)
+	}
+	// run mirror loop to remove links
+	if err := repo.Mirror(txtCtx); err != nil {
+		t.Fatalf("unable to mirror error: %v", err)
 	}
 	assertMissingLink(t, root, link1)
 }
@@ -1503,6 +1519,9 @@ func Test_RepoPool_Success(t *testing.T) {
 	if err := rp.RemoveWorktreeLink(remote2, "link2"); err != nil {
 		t.Errorf("unable to remove worktree error: %v", err)
 	}
+	// wait for the mirror
+	time.Sleep(2 * time.Second)
+
 	assertMissingLink(t, root, "link2")
 
 	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); err != nil {

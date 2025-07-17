@@ -14,6 +14,7 @@ import (
 type WorkTreeLink struct {
 	link      string   // link name as its specified in config, might not be unique only use it for logging
 	linkAbs   string   // the path at which to create a symlink to the worktree dir
+	dir       string   // the path of the dir where valid worktree is checked out
 	ref       string   // the ref of the worktree
 	pathspecs []string // pathspecs of the paths to checkout
 	log       *slog.Logger
@@ -85,45 +86,40 @@ func (r *Repository) isInsideWorkTree(ctx context.Context, wl *WorkTreeLink, wt 
 // files checked out - git could have died halfway through and the repo will
 // still pass this check.
 func (r *Repository) sanityCheckWorktree(ctx context.Context, wl *WorkTreeLink) bool {
-	wt, err := wl.currentWorktree()
-	if err != nil {
-		wl.log.Error("can't get current worktree", "err", err)
-		return false
-	}
-	if wt == "" {
+	if wl.dir == "" {
 		return false
 	}
 
 	// If it is empty, we are done.
-	if empty, err := dirIsEmpty(wt); err != nil {
-		wl.log.Error("can't list worktree directory", "path", wt, "err", err)
+	if empty, err := dirIsEmpty(wl.dir); err != nil {
+		wl.log.Error("can't list worktree directory", "path", wl.dir, "err", err)
 		return false
 	} else if empty {
-		wl.log.Info("worktree directory is empty", "path", wt)
+		wl.log.Info("worktree directory is empty", "path", wl.dir)
 		return false
 	}
 
 	// makes sure path is inside the work tree of the repository
-	if !r.isInsideWorkTree(ctx, wl, wt) {
+	if !r.isInsideWorkTree(ctx, wl, wl.dir) {
 		return false
 	}
 
 	// Check that this is actually the root of the worktree.
 	// git rev-parse --show-toplevel
-	if root, err := r.git(ctx, nil, wt, "rev-parse", "--show-toplevel"); err != nil {
-		wl.log.Error("can't get worktree git dir", "path", wt, "err", err)
+	if root, err := r.git(ctx, nil, wl.dir, "rev-parse", "--show-toplevel"); err != nil {
+		wl.log.Error("can't get worktree git dir", "path", wl.dir, "err", err)
 		return false
 	} else {
-		if root != wt {
-			wl.log.Error("worktree directory is under another worktree", "path", wt, "parent", root)
+		if root != wl.dir {
+			wl.log.Error("worktree directory is under another worktree", "path", wl.dir, "parent", root)
 			return false
 		}
 	}
 
 	// Consistency-check the repo.
 	// git fsck --no-progress --connectivity-only
-	if _, err := r.git(ctx, nil, wt, "fsck", "--no-progress", "--connectivity-only"); err != nil {
-		wl.log.Error("repo fsck failed", "path", wt, "err", err)
+	if _, err := r.git(ctx, nil, wl.dir, "fsck", "--no-progress", "--connectivity-only"); err != nil {
+		wl.log.Error("repo fsck failed", "path", wl.dir, "err", err)
 		return false
 	}
 
