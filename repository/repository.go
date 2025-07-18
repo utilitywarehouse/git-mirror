@@ -489,6 +489,7 @@ func (r *Repository) QueueMirrorRun() {
 func (r *Repository) StopLoop() {
 	r.stop <- true
 	<-r.stopped
+	deleteMetrics(r.gitURL.Repo)
 	r.log.Info("repository mirror loop stopped")
 }
 
