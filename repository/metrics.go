@@ -95,3 +95,23 @@ func updateMirrorLatency(repo string, start time.Time) {
 	}
 	mirrorLatency.WithLabelValues(repo).Observe(time.Since(start).Seconds())
 }
+
+// deleteMetrics will remove all metrics corresponding to given repository
+func deleteMetrics(repo string) {
+	// if metrics not enabled return
+	if lastMirrorTimestamp == nil || mirrorCount == nil || mirrorLatency == nil {
+		return
+	}
+	lastMirrorTimestamp.Delete(prometheus.Labels{
+		"repo": repo,
+	})
+	mirrorCount.Delete(prometheus.Labels{
+		"repo": repo, "success": "true",
+	})
+	mirrorCount.Delete(prometheus.Labels{
+		"repo": repo, "success": "false",
+	})
+	mirrorLatency.Delete(prometheus.Labels{
+		"repo": repo,
+	})
+}
