@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/utilitywarehouse/git-mirror/auth"
@@ -46,7 +47,8 @@ func (r *Repository) authEnv(ctx context.Context) []string {
 
 	// if github app config is set use that token
 	case r.auth.GithubAppInstallationID != "" && r.gitURL.Host == "github.com":
-		token, err := r.getGithubAppToken(ctx, r.gitURL.Repo)
+		// github matches repo name without `.git` for permission for token req
+		token, err := r.getGithubAppToken(ctx, strings.TrimSuffix(r.gitURL.Repo, ".git"))
 		if err != nil {
 			r.log.Error("unable to get github app token", "err", err)
 			return nil
@@ -116,7 +118,7 @@ func (r *Repository) getGithubAppToken(ctx context.Context, repo string) (string
 		r.auth.GithubAppID, r.auth.GithubAppInstallationID, r.auth.GithubAppPrivateKeyPath,
 		permissions)
 	if err != nil {
-		return "", nil
+		return "", err
 	}
 
 	r.githubAppToken = token.Token
