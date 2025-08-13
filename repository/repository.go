@@ -951,6 +951,9 @@ func (r *Repository) removeStaleWorktreeLinks() bool {
 	onDiskTrackedLinks := make(map[string]string)
 	dirents, err := os.ReadDir(r.worktreesRoot())
 	if err != nil {
+		if strings.Contains(err.Error(), "no such file or directory") {
+			return success
+		}
 		r.log.Error("unable to read link worktree root dir", "err", err)
 		return false
 	}
