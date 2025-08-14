@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
@@ -27,7 +27,7 @@ COPY . .
 RUN go test -v -cover ./... && \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o git-mirror
 
-FROM alpine:3.21
+FROM alpine:3.22
 
 ENV USER_ID=65532
 
