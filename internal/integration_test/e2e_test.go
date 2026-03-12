@@ -115,47 +115,77 @@ func Test_Init_Scenarios(t *testing.T) {
 	})
 }
 
-func Test_mirror_head_and_main(t *testing.T) {
+// Test_Mirror_Lifecycle_Combined tests the full lifecycle (forward, backward, delete)
+// across main, HEAD, branches, and tags simultaneously.
+func Test_Mirror_Lifecycle_Combined(t *testing.T) {
 	env := setupEnv(t)
 	defer env.cleanup()
-	link1, link2 := "link1", "link2"
-	ref1, ref2 := testMainBranch, "HEAD"
 
-	t.Run("init upstream", func(t *testing.T) {
-		env.initUpstream("file", env.name+"-1")
-		env.createAndMirror(link1, ref1)
+	lMain, lHead, lOther, lTag := "link-main", "link-head", "link-other", "link-tag"
+	rMain, rHead, rOther, rTag := testMainBranch, "HEAD", "other-branch", "e2e-tag"
 
-		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
+	t.Run("init upstream and add references", func(t *testing.T) {
+		env.initUpstream("file", env.name+"-main-1")
+		env.checkout(rOther, true)
+		env.commit("file", env.name+"-other-1")
+		env.checkout(rMain, false)
+		env.exec("git", "tag", "-af", rTag, "-m", env.name+"-main-1")
+
+		env.createAndMirror(lMain, rMain)
+
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: lHead, Ref: rHead})
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: lOther, Ref: rOther})
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: lTag, Ref: rTag})
+
 		env.mirror()
 
-		env.assertFileLinked(link1, "file", env.name+"-1")
-		env.assertFileLinked(link2, "file", env.name+"-1")
+		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-1"}, nil)
+		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-1"}, nil)
+		env.assertFilesLinked(lOther, map[string]string{"file": env.name + "-other-1"}, nil)
+		env.assertFilesLinked(lTag, map[string]string{"file": env.name + "-main-1"}, nil)
 	})
 
-	t.Run("forward HEAD", func(t *testing.T) {
-		env.commit("file", env.name+"-2")
+	t.Run("forward all references", func(t *testing.T) {
+		env.commit("file", env.name+"-main-2")
+		env.exec("git", "tag", "-af", rTag, "-m", env.name+"-main-2")
+		env.checkout(rOther, false)
+		env.commit("file", env.name+"-other-2")
+		env.checkout(rMain, false)
+
 		env.mirror()
 
-		env.assertFileLinked(link1, "file", env.name+"-2")
-		env.assertFileLinked(link2, "file", env.name+"-2")
+		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-2"}, nil)
+		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-2"}, nil)
+		env.assertFilesLinked(lOther, map[string]string{"file": env.name + "-other-2"}, nil)
+		env.assertFilesLinked(lTag, map[string]string{"file": env.name + "-main-2"}, nil)
 	})
 
-	t.Run("move HEAD backward", func(t *testing.T) {
+	t.Run("move all references backward", func(t *testing.T) {
 		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.exec("git", "tag", "-af", rTag, "-m", "moving back")
+		env.checkout(rOther, false)
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.checkout(rMain, false)
+
 		env.mirror()
 
-		env.assertFileLinked(link1, "file", env.name+"-1")
-		env.assertFileLinked(link2, "file", env.name+"-1")
+		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-1"}, nil)
+		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-1"}, nil)
+		env.assertFilesLinked(lOther, map[string]string{"file": env.name + "-other-1"}, nil)
+		env.assertFilesLinked(lTag, map[string]string{"file": env.name + "-main-1"}, nil)
 	})
 
 	t.Run("remove worktrees", func(t *testing.T) {
-		env.repo.RemoveWorktreeLink(link2)
+		env.repo.RemoveWorktreeLink(lMain)
+		env.repo.RemoveWorktreeLink(lHead)
+		env.repo.RemoveWorktreeLink(lOther)
+		env.repo.RemoveWorktreeLink(lTag)
 		env.mirror()
-		env.assertMissingLink(link2)
 
-		env.repo.RemoveWorktreeLink(link1)
-		env.mirror()
-		env.assertMissingLink(link1)
+		env.assertMissingLink(lMain)
+		env.assertMissingLink(lHead)
+		env.assertMissingLink(lOther)
+		env.assertMissingLink(lTag)
 	})
 }
 
@@ -183,61 +213,6 @@ func Test_mirror_bad_ref(t *testing.T) {
 			t.Errorf("unexpected success for non-existent link")
 		}
 		assertMissingLink(t, env.root, "link")
-	})
-}
-
-func Test_mirror_other_branch(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-	link1, link2 := "link1", "link2"
-	ref1, ref2 := testMainBranch, "other-branch"
-
-	t.Run("init upstream and add other-branch", func(t *testing.T) {
-		env.initUpstream("file", env.name+"-main-1")
-		env.exec("git", "checkout", "-q", "-b", ref2)
-		env.commit("file", env.name+"-other-1")
-		env.exec("git", "checkout", "-q", ref1)
-
-		env.createAndMirror(link1, ref1)
-		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
-		env.mirror()
-
-		env.assertFileLinked(link1, "file", env.name+"-main-1")
-		env.assertFileLinked(link2, "file", env.name+"-other-1")
-	})
-
-	t.Run("forward both branches", func(t *testing.T) {
-		env.commit("file", env.name+"-main-2")
-		env.exec("git", "checkout", "-q", ref2)
-		env.commit("file", env.name+"-other-2")
-		env.exec("git", "checkout", "-q", ref1)
-
-		env.mirror()
-
-		env.assertFileLinked(link1, "file", env.name+"-main-2")
-		env.assertFileLinked(link2, "file", env.name+"-other-2")
-	})
-
-	t.Run("move both branches backward", func(t *testing.T) {
-		env.exec("git", "reset", "-q", "--hard", "HEAD^")
-		env.exec("git", "checkout", "-q", ref2)
-		env.exec("git", "reset", "-q", "--hard", "HEAD^")
-		env.exec("git", "checkout", "-q", ref1)
-
-		env.mirror()
-
-		env.assertFileLinked(link1, "file", env.name+"-main-1")
-		env.assertFileLinked(link2, "file", env.name+"-other-1")
-	})
-
-	t.Run("remove worktrees", func(t *testing.T) {
-		env.repo.RemoveWorktreeLink(link2)
-		env.mirror()
-		env.assertMissingLink(link2)
-
-		env.repo.RemoveWorktreeLink(link1)
-		env.mirror()
-		env.assertMissingLink(link1)
 	})
 }
 
@@ -376,43 +351,6 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 
 		env.mirror()
 		env.assertFileLinked(link1, "file", env.name+"-other-1")
-		env.assertFileLinked(link2, "file", env.name+"-main-1")
-	})
-}
-
-func Test_mirror_tag_sha(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-	link1, link2 := "link1", "link2"
-	ref1, ref2 := "e2e-tag", ""
-
-	t.Run("init upstream and add tag and get current SHA", func(t *testing.T) {
-		ref2 = env.initUpstream("file", env.name+"-main-1")
-		env.exec("git", "tag", "-af", ref1, "-m", env.name+"-main-1")
-
-		env.createAndMirror(link1, ref1)
-		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
-		env.mirror()
-
-		env.assertFileLinked(link1, "file", env.name+"-main-1")
-		env.assertFileLinked(link2, "file", env.name+"-main-1")
-	})
-
-	t.Run("commit and move tag forward", func(t *testing.T) {
-		env.commit("file", env.name+"-main-2")
-		env.exec("git", "tag", "-af", ref1, "-m", env.name+"-main-2")
-
-		env.mirror()
-		env.assertFileLinked(link1, "file", env.name+"-main-2")
-		env.assertFileLinked(link2, "file", env.name+"-main-1")
-	})
-
-	t.Run("move tag backward", func(t *testing.T) {
-		env.exec("git", "reset", "-q", "--hard", "HEAD^")
-		env.exec("git", "tag", "-af", ref1, "-m", env.name+"-main-3")
-
-		env.mirror()
-		env.assertFileLinked(link1, "file", env.name+"-main-1")
 		env.assertFileLinked(link2, "file", env.name+"-main-1")
 	})
 }
@@ -1146,6 +1084,25 @@ func (e *testEnv) mirror() {
 	e.t.Helper()
 	if err := e.repo.Mirror(txtCtx); err != nil {
 		e.t.Fatalf("unable to mirror error: %v", err)
+	}
+}
+
+func (e *testEnv) checkout(branch string, create bool) {
+	e.t.Helper()
+	if create {
+		e.exec("git", "checkout", "-q", "-b", branch)
+	} else {
+		e.exec("git", "checkout", "-q", branch)
+	}
+}
+
+func (e *testEnv) assertFilesLinked(link string, expected map[string]string, missing []string) {
+	e.t.Helper()
+	for file, content := range expected {
+		e.assertFileLinked(link, file, content)
+	}
+	for _, file := range missing {
+		e.assertMissingLinkFile(link, file)
 	}
 }
 
