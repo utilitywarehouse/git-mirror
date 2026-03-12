@@ -64,1292 +64,861 @@ func TestMain(m *testing.M) {
 // ##############################################
 
 func Test_init_root_doesnt_exist(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link := "link"
-
-	t.Log("TEST1: init upstream and test mirror")
-	mustInitRepo(t, upstream, "file", t.Name())
-
-	mustCreateRepoAndMirror(t, upstream, root, link, testMainBranch)
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, link, "file", t.Name())
+	t.Run("init upstream and test mirror", func(t *testing.T) {
+		env.initUpstream("file", env.name)
+		env.createAndMirror("link", testMainBranch)
+		env.assertFileLinked("link", "file", env.name)
+	})
 }
 
 func Test_init_existing_root(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link, ref := "link", testMainBranch
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link := "link"
-	ref := testMainBranch
-	linkAbs := filepath.Join(root, link)
+	t.Run("init upstream and run mirror to create mirrors at root", func(t *testing.T) {
+		env.initUpstream("file", env.name)
+		env.createAndMirror(link, ref)
+	})
 
-	t.Log("TEST1: init upstream and run mirror to create mirrors at root")
-
-	mustInitRepo(t, upstream, "file", t.Name())
-
-	// create mirror repo and add link for main branch
-	mustCreateRepoAndMirror(t, upstream, root, "link", ref)
-
-	t.Log("re-create mirror repo with same root and worktree with absolute path")
-
-	mustCreateRepoAndMirror(t, upstream, root, linkAbs, ref)
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, link, "file", t.Name())
+	t.Run("re-create mirror repo with same root and worktree with absolute path", func(t *testing.T) {
+		env.createAndMirror(filepath.Join(env.root, link), ref)
+		env.assertFileLinked(link, "file", env.name)
+	})
 }
 
 func Test_init_existing_root_with_diff_repo(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link, ref := filepath.Join("sub", "dir", "link"), testMainBranch
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link := filepath.Join("sub", "dir", "link")
-	ref := testMainBranch
+	t.Run("init both upstream and mirror repo", func(t *testing.T) {
+		env.initUpstream("file", env.name)
+		mustInitRepo(t, filepath.Join(env.root, testUpstreamRepo), "file", env.name)
 
-	t.Log("TEST1: init both upstream and mirror repo")
-	mustInitRepo(t, upstream, "file", t.Name())
-	mustInitRepo(t, filepath.Join(root, testUpstreamRepo), "file", t.Name())
+		env.createAndMirror(link, ref)
+		env.assertFileLinked(link, "file", env.name)
+	})
 
-	// create NEW repo using same paths...(testing existing root)
-	mustCreateRepoAndMirror(t, upstream, root, link, ref)
+	t.Run("change root so that its under existing repo and create new mirror repo", func(t *testing.T) {
+		env.root = filepath.Join(env.root, testUpstreamRepo)
+		if err := os.MkdirAll(filepath.Join(env.root, testUpstreamRepo, testUpstreamRepo), defaultDirMode); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, link, "file", t.Name())
-
-	t.Log("TEST2: change root so that its under existing repo and create new mirror repo")
-	// root = root/upstream.git
-	root = filepath.Join(root, testUpstreamRepo)
-	// create another dir 'root/upstream.git/upstream.git' so that `upstream.git` dir is inside
-	// existing repo created above test
-	if err := os.MkdirAll(filepath.Join(root, testUpstreamRepo, testUpstreamRepo), defaultDirMode); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// create NEW repo using same paths...(testing existing root)
-	mustCreateRepoAndMirror(t, upstream, root, link, ref)
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, link, "file", t.Name())
+		env.createAndMirror(link, ref)
+		env.assertFileLinked(link, "file", env.name)
+	})
 }
 
 func Test_init_existing_root_fails_sanity(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link, ref := "link", testMainBranch
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link := "link"
-	ref := testMainBranch
+	env.initUpstream("file", env.name)
+	env.createAndMirror(link, ref)
 
-	mustInitRepo(t, upstream, "file", t.Name())
+	t.Run("modify remote origin URL", func(t *testing.T) {
+		env.execInRepo("git", "remote", "set-url", "origin", "blah/blah")
+		env.createAndMirror(link, ref)
+		env.assertFileLinked(link, "file", env.name)
+	})
 
-	// create mirror repo1 and add link for main branch
-	repo1 := mustCreateRepoAndMirror(t, upstream, root, link, ref)
-
-	t.Log("TEST-1: modify remote 'origin' URL")
-	mustExec(t, repo1.Directory(), "git", "remote", "set-url", "origin", "blah/blah")
-
-	// create repo using same paths...
-	mustCreateRepoAndMirror(t, upstream, root, link, ref)
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, link, "file", t.Name())
-
-	t.Log("TEST-2: modify remote 'origin' fetch path refs")
-	mustExec(t, repo1.Directory(), "git", "config", "--add", "remote.origin.fetch", "+refs/heads/master:refs/remotes/origin/master")
-
-	// create repo using same paths...
-	mustCreateRepoAndMirror(t, upstream, root, link, ref)
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, link, "file", t.Name())
+	t.Run("modify remote origin fetch path refs", func(t *testing.T) {
+		env.execInRepo("git", "config", "--add", "remote.origin.fetch", "+refs/heads/master:refs/remotes/origin/master")
+		env.createAndMirror(link, ref)
+		env.assertFileLinked(link, "file", env.name)
+	})
 }
 
 func Test_mirror_head_and_main(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link1, link2 := "link1", "link2"
+	ref1, ref2 := testMainBranch, "HEAD"
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link1 := "link1" // on testBranchMain branch
-	link2 := "link2" // on remote HEAD
-	ref1 := testMainBranch
-	ref2 := "HEAD"
+	t.Run("init upstream", func(t *testing.T) {
+		env.initUpstream("file", env.name+"-1")
+		env.createAndMirror(link1, ref1)
 
-	t.Log("TEST-1: init upstream")
-	mustInitRepo(t, upstream, "file", t.Name()+"-1")
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
+		env.mirror()
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
-	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	// mirror again for 2nd worktree
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		env.assertFileLinked(link1, "file", env.name+"-1")
+		env.assertFileLinked(link2, "file", env.name+"-1")
+	})
 
-	// verify checkout files
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
+	t.Run("forward HEAD", func(t *testing.T) {
+		env.commit("file", env.name+"-2")
+		env.mirror()
 
-	t.Log("TEST-2: forward HEAD")
+		env.assertFileLinked(link1, "file", env.name+"-2")
+		env.assertFileLinked(link2, "file", env.name+"-2")
+	})
 
-	mustCommit(t, upstream, "file", t.Name()+"-2")
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-2")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-2")
+	t.Run("move HEAD backward", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.mirror()
 
-	t.Log("TEST-3: move HEAD backward")
+		env.assertFileLinked(link1, "file", env.name+"-1")
+		env.assertFileLinked(link2, "file", env.name+"-1")
+	})
 
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
+	t.Run("remove worktrees", func(t *testing.T) {
+		env.repo.RemoveWorktreeLink(link2)
+		env.mirror()
+		env.assertMissingLink(link2)
 
-	// remove worktrees
-	if err := repo.RemoveWorktreeLink(link2); err != nil {
-		t.Errorf("unable to remove worktree error: %v", err)
-	}
-	// run mirror loop to remove links
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertMissingLink(t, root, link2)
-
-	if err := repo.RemoveWorktreeLink(link1); err != nil {
-		t.Errorf("unable to remove worktree error: %v", err)
-	}
-	// run mirror loop to remove links
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertMissingLink(t, root, link1)
+		env.repo.RemoveWorktreeLink(link1)
+		env.mirror()
+		env.assertMissingLink(link1)
+	})
 }
 
 func Test_mirror_bad_ref(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link := "link"
-	ref := "non-existent"
+	t.Run("init upstream without non-existent branch", func(t *testing.T) {
+		env.initUpstream("file", env.name)
 
-	t.Log("TEST-1: init upstream without non-existent branch")
-	mustInitRepo(t, upstream, "file", t.Name())
+		rc := repository.Config{
+			Remote:        "file://" + env.upstream,
+			Root:          env.root,
+			Interval:      testInterval,
+			MirrorTimeout: testTimeout,
+			GitGC:         "always",
+			Worktrees:     []repository.WorktreeConfig{{Link: "link", Ref: "non-existent"}},
+		}
+		repo, err := repository.New(rc, "", testENVs, testLog)
+		if err != nil {
+			t.Fatalf("unable to create new repo error: %v", err)
+		}
 
-	rc := repository.Config{
-		Remote:        "file://" + upstream,
-		Root:          root,
-		Interval:      testInterval,
-		MirrorTimeout: testTimeout,
-		GitGC:         "always",
-		Worktrees:     []repository.WorktreeConfig{{Link: link, Ref: ref}},
-	}
-	repo, err := repository.New(rc, "", testENVs, testLog)
-	if err != nil {
-		t.Fatalf("unable to create new repo error: %v", err)
-	}
-
-	if err := repo.Mirror(txtCtx); err == nil {
-		t.Errorf("unexpected success for non-existent link")
-	}
-
-	// verify checkout files
-	assertMissingLink(t, root, link)
+		if err := repo.Mirror(txtCtx); err == nil {
+			t.Errorf("unexpected success for non-existent link")
+		}
+		assertMissingLink(t, env.root, "link")
+	})
 }
 
 func Test_mirror_other_branch(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link1, link2 := "link1", "link2"
+	ref1, ref2 := testMainBranch, "other-branch"
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link1 := "link1" // on testBranchMain branch
-	link2 := "link2" // on remote other-branch
-	ref1 := testMainBranch
-	ref2 := "other-branch"
+	t.Run("init upstream and add other-branch", func(t *testing.T) {
+		env.initUpstream("file", env.name+"-main-1")
+		env.exec("git", "checkout", "-q", "-b", ref2)
+		env.commit("file", env.name+"-other-1")
+		env.exec("git", "checkout", "-q", ref1)
 
-	t.Log("TEST-1: init upstream and add other-branch")
+		env.createAndMirror(link1, ref1)
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
+		env.mirror()
 
-	mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
-	// add other-branch and commit and switch back
-	mustExec(t, upstream, "git", "checkout", "-q", "-b", ref2)
-	mustCommit(t, upstream, "file", t.Name()+"-other-1")
-	mustExec(t, upstream, "git", "checkout", "-q", ref1)
+		env.assertFileLinked(link1, "file", env.name+"-main-1")
+		env.assertFileLinked(link2, "file", env.name+"-other-1")
+	})
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
-	// add 2nd worktree
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	// mirror again for 2nd worktree
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+	t.Run("forward both branches", func(t *testing.T) {
+		env.commit("file", env.name+"-main-2")
+		env.exec("git", "checkout", "-q", ref2)
+		env.commit("file", env.name+"-other-2")
+		env.exec("git", "checkout", "-q", ref1)
 
-	// verify checkout files
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-other-1")
+		env.mirror()
 
-	t.Log("TEST-2: forward both branch")
+		env.assertFileLinked(link1, "file", env.name+"-main-2")
+		env.assertFileLinked(link2, "file", env.name+"-other-2")
+	})
 
-	mustCommit(t, upstream, "file", t.Name()+"-main-2")
-	mustExec(t, upstream, "git", "checkout", "-q", ref2)
-	mustCommit(t, upstream, "file", t.Name()+"-other-2")
-	mustExec(t, upstream, "git", "checkout", "-q", ref1)
+	t.Run("move both branches backward", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.exec("git", "checkout", "-q", ref2)
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.exec("git", "checkout", "-q", ref1)
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-2")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-other-2")
+		env.mirror()
 
-	t.Log("TEST-3: move both branch backward")
+		env.assertFileLinked(link1, "file", env.name+"-main-1")
+		env.assertFileLinked(link2, "file", env.name+"-other-1")
+	})
 
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-	mustExec(t, upstream, "git", "checkout", "-q", ref2)
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-	mustExec(t, upstream, "git", "checkout", "-q", ref1)
+	t.Run("remove worktrees", func(t *testing.T) {
+		env.repo.RemoveWorktreeLink(link2)
+		env.mirror()
+		env.assertMissingLink(link2)
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-other-1")
-
-	// remove worktrees
-	if err := repo.RemoveWorktreeLink(link2); err != nil {
-		t.Errorf("unable to remove worktree error: %v", err)
-	}
-	// run mirror loop to remove links
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertMissingLink(t, root, link2)
-
-	if err := repo.RemoveWorktreeLink(link1); err != nil {
-		t.Errorf("unable to remove worktree error: %v", err)
-	}
-	// run mirror loop to remove links
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertMissingLink(t, root, link1)
+		env.repo.RemoveWorktreeLink(link1)
+		env.mirror()
+		env.assertMissingLink(link1)
+	})
 }
 
 func Test_mirror_with_pathspec(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link1 := "link1" // on testBranchMain branch
-	link2 := "link2" // on remote HEAD -- dir2
-	link3 := "link3" // on remote HEAD -- dir3
-	link4 := "link4" // on remote HEAD -- dir2 dir3
-	ref1 := testMainBranch
-	ref2 := "HEAD"
-	ref3 := "HEAD"
-	pathSpec2 := "dir2"
-	pathSpec3 := "dir3"
+	link1, link2, link3, link4 := "link1", "link2", "link3", "link4"
+	ref1, ref2, ref3 := testMainBranch, "HEAD", "HEAD"
+	pathSpec2, pathSpec3 := "dir2", "dir3"
+	var firstSHA string
 
-	t.Log("TEST-1: init upstream without other dirs")
+	t.Run("init upstream without other dirs", func(t *testing.T) {
+		firstSHA = env.initUpstream("file", env.name+"-main-1")
+		env.createAndMirror(link1, ref1)
+		env.mirror()
 
-	firstSHA := mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
+		env.assertFileLinked(link1, "file", env.name+"-main-1")
+		env.assertMissingLinkFile(link2, "file")
+		env.assertMissingLinkFile(link3, "file")
+	})
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
+	t.Run("forward HEAD and create dir2 to test link2", func(t *testing.T) {
+		env.commit("file", env.name+"-main-2")
+		env.commit(filepath.Join("dir2", "file"), env.name+"-main-2")
 
-	// mirror again for 2nd worktree
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{pathSpec2}})
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link4, Ref: ref2, Pathspecs: []string{pathSpec2}})
+		env.mirror()
 
-	// verify checkout files
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
-	assertMissingLinkFile(t, root, link2, "file")
-	assertMissingLinkFile(t, root, link3, "file")
+		env.assertFileLinked(link1, "file", env.name+"-main-2")
+		env.assertFileLinked(link1, filepath.Join("dir2", "file"), env.name+"-main-2")
 
-	t.Log("TEST-2: forward HEAD and create dir2 to test link2")
+		env.assertMissingLinkFile(link2, "file")
+		env.assertFileLinked(link2, filepath.Join("dir2", "file"), env.name+"-main-2")
 
-	mustCommit(t, upstream, "file", t.Name()+"-main-2")
-	mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-main-2")
+		env.assertMissingLinkFile(link3, "file")
+		env.assertMissingLinkFile(link3, filepath.Join("dir2", "file"))
 
-	// add worktree for HEAD on dir2
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{pathSpec2}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link4, Ref: ref2, Pathspecs: []string{pathSpec2}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
+		env.assertMissingLinkFile(link4, "file")
+		env.assertFileLinked(link4, filepath.Join("dir2", "file"), env.name+"-main-2")
+	})
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-2")
-	assertLinkedFile(t, root, link1, filepath.Join("dir2", "file"), t.Name()+"-main-2")
+	t.Run("forward HEAD and create dir3 to test link3", func(t *testing.T) {
+		env.commit("file", env.name+"-main-3")
+		env.commit(filepath.Join("dir2", "file"), env.name+"-main-3")
+		env.commit(filepath.Join("dir3", "file"), env.name+"-main-3")
 
-	assertMissingLinkFile(t, root, link2, "file")
-	assertLinkedFile(t, root, link2, filepath.Join("dir2", "file"), t.Name()+"-main-2")
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link3, Ref: ref3, Pathspecs: []string{pathSpec3}})
+		env.repo.RemoveWorktreeLink(link4)
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link4, Ref: ref2, Pathspecs: []string{pathSpec3, pathSpec2}})
+		env.mirror()
 
-	assertMissingLinkFile(t, root, link3, "file")
-	assertMissingLinkFile(t, root, link3, filepath.Join("dir2", "file"))
+		env.assertFileLinked(link1, "file", env.name+"-main-3")
+		env.assertFileLinked(link1, filepath.Join("dir2", "file"), env.name+"-main-3")
+		env.assertFileLinked(link1, filepath.Join("dir3", "file"), env.name+"-main-3")
 
-	assertMissingLinkFile(t, root, link4, "file")
-	assertLinkedFile(t, root, link4, filepath.Join("dir2", "file"), t.Name()+"-main-2")
+		env.assertMissingLinkFile(link2, "file")
+		env.assertFileLinked(link2, filepath.Join("dir2", "file"), env.name+"-main-3")
+		env.assertMissingLinkFile(link2, filepath.Join("dir3", "file"))
 
-	t.Log("TEST-3: forward HEAD and create dir3 to test link3")
+		env.assertMissingLinkFile(link3, "file")
+		env.assertMissingLinkFile(link3, filepath.Join("dir2", "file"))
+		env.assertFileLinked(link3, filepath.Join("dir3", "file"), env.name+"-main-3")
 
-	mustCommit(t, upstream, "file", t.Name()+"-main-3")
-	mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-main-3")
-	mustCommit(t, upstream, filepath.Join("dir3", "file"), t.Name()+"-main-3")
+		env.assertMissingLinkFile(link4, "file")
+		env.assertFileLinked(link4, filepath.Join("dir2", "file"), env.name+"-main-3")
+		env.assertFileLinked(link4, filepath.Join("dir3", "file"), env.name+"-main-3")
+	})
 
-	// add worktree for HEAD on dir3
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link3, Ref: ref3, Pathspecs: []string{pathSpec3}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	// update worktree link4
-	if err := repo.RemoveWorktreeLink(link4); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link4, Ref: ref2, Pathspecs: []string{pathSpec3, pathSpec2}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-3")
-	assertLinkedFile(t, root, link1, filepath.Join("dir2", "file"), t.Name()+"-main-3")
-	assertLinkedFile(t, root, link1, filepath.Join("dir3", "file"), t.Name()+"-main-3")
+	t.Run("move HEAD backward by 3 commit to original state", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", firstSHA)
 
-	assertMissingLinkFile(t, root, link2, "file")
-	assertLinkedFile(t, root, link2, filepath.Join("dir2", "file"), t.Name()+"-main-3")
-	assertMissingLinkFile(t, root, link2, filepath.Join("dir3", "file"))
+		env.repo.RemoveWorktreeLink(link2)
+		env.repo.RemoveWorktreeLink(link3)
+		env.repo.RemoveWorktreeLink(link4)
+		env.mirror()
 
-	assertMissingLinkFile(t, root, link3, "file")
-	assertMissingLinkFile(t, root, link3, filepath.Join("dir2", "file"))
-	assertLinkedFile(t, root, link3, filepath.Join("dir3", "file"), t.Name()+"-main-3")
+		env.assertFileLinked(link1, "file", env.name+"-main-1")
+		env.assertMissingLinkFile(link1, filepath.Join("dir2", "file"))
+		env.assertMissingLinkFile(link1, filepath.Join("dir3", "file"))
 
-	assertMissingLinkFile(t, root, link4, "file")
-	assertLinkedFile(t, root, link4, filepath.Join("dir2", "file"), t.Name()+"-main-3")
-	assertLinkedFile(t, root, link4, filepath.Join("dir3", "file"), t.Name()+"-main-3")
+		env.assertMissingLinkFile(link2, "file")
+		env.assertMissingLinkFile(link2, filepath.Join("dir2", "file"))
+		env.assertMissingLinkFile(link2, filepath.Join("dir3", "file"))
 
-	t.Log("TEST-3: move HEAD backward by 3 commit to original state")
-
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", firstSHA)
-
-	// remove worktrees with pathspec which doesn't exit
-	if err := repo.RemoveWorktreeLink(link2); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	if err := repo.RemoveWorktreeLink(link3); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	if err := repo.RemoveWorktreeLink(link4); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
-	assertMissingLinkFile(t, root, link1, filepath.Join("dir2", "file"))
-	assertMissingLinkFile(t, root, link1, filepath.Join("dir3", "file"))
-
-	assertMissingLinkFile(t, root, link2, "file")
-	assertMissingLinkFile(t, root, link2, filepath.Join("dir2", "file"))
-	assertMissingLinkFile(t, root, link2, filepath.Join("dir3", "file"))
-
-	assertMissingLinkFile(t, root, link3, "file")
-	assertMissingLinkFile(t, root, link3, filepath.Join("dir2", "file"))
-	assertMissingLinkFile(t, root, link3, filepath.Join("dir3", "file"))
+		env.assertMissingLinkFile(link3, "file")
+		env.assertMissingLinkFile(link3, filepath.Join("dir2", "file"))
+		env.assertMissingLinkFile(link3, filepath.Join("dir3", "file"))
+	})
 }
 
 func Test_mirror_switch_branch_after_restart(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link1, link2 := "link1", "link2"
+	ref1, ref2 := testMainBranch, "other-branch"
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link1 := "link1" // on testBranchMain branch
-	link2 := "link2" // on remote other-branch
-	ref1 := testMainBranch
-	ref2 := "other-branch"
+	env.initUpstream("file", env.name+"-main-1")
+	env.exec("git", "checkout", "-q", "-b", ref2)
+	env.commit("file", env.name+"-other-1")
+	env.exec("git", "checkout", "-q", ref1)
 
-	mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
-	// add other-branch and commit and switch back
-	mustExec(t, upstream, "git", "checkout", "-q", "-b", ref2)
-	mustCommit(t, upstream, "file", t.Name()+"-other-1")
-	mustExec(t, upstream, "git", "checkout", "-q", ref1)
+	env.createAndMirror(link1, ref1)
+	env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
+	env.mirror()
 
-	repo1 := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
-	// add 2nd worktree
-	if err := repo1.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	// mirror again for 2nd worktree
-	if err := repo1.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+	env.assertFileLinked(link1, "file", env.name+"-main-1")
+	env.assertFileLinked(link2, "file", env.name+"-other-1")
 
-	// verify checkout files
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-other-1")
+	t.Run("trigger restart by creating new repo with switched links", func(t *testing.T) {
+		env.createAndMirror(link1, ref2)
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref1, Pathspecs: []string{}})
+		env.mirror()
 
-	t.Log("TEST-1: trigger restart by creating new repo with switched links")
+		env.assertFileLinked(link1, "file", env.name+"-other-1")
+		env.assertFileLinked(link2, "file", env.name+"-main-1")
+	})
 
-	repo2 := mustCreateRepoAndMirror(t, upstream, root, link1, ref2)
-	// add 2nd worktree
-	if err := repo2.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref1, Pathspecs: []string{}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	// mirror again for 2nd worktree
-	if err := repo2.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+	t.Run("forward both branches", func(t *testing.T) {
+		env.commit("file", env.name+"-main-2")
+		env.exec("git", "checkout", "-q", ref2)
+		env.commit("file", env.name+"-other-2")
+		env.exec("git", "checkout", "-q", ref1)
 
-	// verify checkout files switch
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-other-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-main-1")
+		env.mirror()
+		env.assertFileLinked(link1, "file", env.name+"-other-2")
+		env.assertFileLinked(link2, "file", env.name+"-main-2")
+	})
 
-	t.Log("TEST-2: forward both branch")
+	t.Run("move both branches backward", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.exec("git", "checkout", "-q", ref2)
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.exec("git", "checkout", "-q", ref1)
 
-	mustCommit(t, upstream, "file", t.Name()+"-main-2")
-	mustExec(t, upstream, "git", "checkout", "-q", ref2)
-	mustCommit(t, upstream, "file", t.Name()+"-other-2")
-	mustExec(t, upstream, "git", "checkout", "-q", ref1)
-
-	// mirror new commits
-	if err := repo2.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-other-2")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-main-2")
-
-	t.Log("TEST-3: move both branch backward")
-
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-	mustExec(t, upstream, "git", "checkout", "-q", ref2)
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-	mustExec(t, upstream, "git", "checkout", "-q", ref1)
-
-	// mirror new commits
-	if err := repo2.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-other-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-main-1")
+		env.mirror()
+		env.assertFileLinked(link1, "file", env.name+"-other-1")
+		env.assertFileLinked(link2, "file", env.name+"-main-1")
+	})
 }
 
 func Test_mirror_tag_sha(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link1, link2 := "link1", "link2"
+	ref1, ref2 := "e2e-tag", ""
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link1 := "link1" // on e2e-tag tag
-	link2 := "link2" // on remote other-branch
-	ref1 := "e2e-tag"
-	ref2 := "" // will be calculated later
+	t.Run("init upstream and add tag and get current SHA", func(t *testing.T) {
+		ref2 = env.initUpstream("file", env.name+"-main-1")
+		env.exec("git", "tag", "-af", ref1, "-m", env.name+"-main-1")
 
-	t.Log("TEST-1: init upstream and add tag and get current SHA")
+		env.createAndMirror(link1, ref1)
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
+		env.mirror()
 
-	ref2 = mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
-	// add tag at current commit
-	mustExec(t, upstream, "git", "tag", "-af", ref1, "-m", t.Name()+"-main-1")
+		env.assertFileLinked(link1, "file", env.name+"-main-1")
+		env.assertFileLinked(link2, "file", env.name+"-main-1")
+	})
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
-	// add 2nd worktree
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
-	// mirror again for 2nd worktree
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+	t.Run("commit and move tag forward", func(t *testing.T) {
+		env.commit("file", env.name+"-main-2")
+		env.exec("git", "tag", "-af", ref1, "-m", env.name+"-main-2")
 
-	// verify checkout files
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-main-1")
+		env.mirror()
+		env.assertFileLinked(link1, "file", env.name+"-main-2")
+		env.assertFileLinked(link2, "file", env.name+"-main-1")
+	})
 
-	t.Log("TEST-2: commit and move tag forward")
+	t.Run("move tag backward", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.exec("git", "tag", "-af", ref1, "-m", env.name+"-main-3")
 
-	mustCommit(t, upstream, "file", t.Name()+"-main-2")
-	mustExec(t, upstream, "git", "tag", "-af", ref1, "-m", t.Name()+"-main-2")
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-2")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-main-1")
-
-	t.Log("TEST-3: move tag backward")
-
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-	mustExec(t, upstream, "git", "tag", "-af", ref1, "-m", t.Name()+"-main-3")
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-main-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-main-1")
+		env.mirror()
+		env.assertFileLinked(link1, "file", env.name+"-main-1")
+		env.assertFileLinked(link2, "file", env.name+"-main-1")
+	})
 }
 
 func Test_mirror_with_crash(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link1, ref1 := "link1", testMainBranch
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link1 := "link1" // on testBranchMain branch
-	ref1 := testMainBranch
+	t.Run("init upstream", func(t *testing.T) {
+		env.initUpstream("file", env.name+"- 1")
+		env.createAndMirror(link1, ref1)
+		env.assertFileLinked(link1, "file", env.name+"- 1")
+	})
 
-	t.Log("TEST-1: init upstream")
-	mustInitRepo(t, upstream, "file", t.Name()+"- 1")
+	t.Run("forward HEAD and delete link 1 symlink", func(t *testing.T) {
+		if err := os.Remove(filepath.Join(env.root, link1)); err != nil {
+			t.Fatalf("unexpected error:%s", err)
+		}
+		env.commit("file", env.name+"- 2")
+		env.mirror()
+		env.assertFileLinked(link1, "file", env.name+"- 2")
+	})
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
+	t.Run("forward HEAD and delete actual worktree", func(t *testing.T) {
+		wtPath, err := utils.ReadAbsLink(env.repo.WorktreeLinks()[link1].AbsoluteLink())
+		if err != nil {
+			t.Fatalf("unexpected error:%s", err)
+		}
+		if err := os.RemoveAll(wtPath); err != nil {
+			t.Fatalf("unexpected error:%s", err)
+		}
 
-	// verify checkout files
-	assertLinkedFile(t, root, link1, "file", t.Name()+"- 1")
+		env.commit("file", env.name+"- 3")
+		env.mirror()
+		env.assertFileLinked(link1, "file", env.name+"- 3")
+	})
 
-	t.Log("TEST-2: forward HEAD and delete link 1 symlink")
-
-	if err := os.Remove(filepath.Join(root, link1)); err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
-	mustCommit(t, upstream, "file", t.Name()+"- 2")
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"- 2")
-
-	t.Log("TEST-3: forward HEAD and delete actual worktree")
-
-	wtPath, err := utils.ReadAbsLink(repo.WorktreeLinks()[link1].AbsoluteLink())
-	if err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
-	if err := os.RemoveAll(wtPath); err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
-	mustCommit(t, upstream, "file", t.Name()+"- 3")
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"- 3")
-
-	t.Log("TEST-3: move HEAD backward and delete root repository")
-
-	if err := os.RemoveAll(root); err != nil {
-		t.Fatalf("unexpected error:%s", err)
-	}
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	assertLinkedFile(t, root, link1, "file", t.Name()+"- 2")
+	t.Run("move HEAD backward and delete root repository", func(t *testing.T) {
+		if err := os.RemoveAll(env.root); err != nil {
+			t.Fatalf("unexpected error:%s", err)
+		}
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.mirror()
+		env.assertFileLinked(link1, "file", env.name+"- 2")
+	})
 }
 
 func Test_commit_hash_msg(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
 	otherBranch := "other-branch"
+	var fileSHA1, fileSHA2, dir1SHA2, fileSHA3, dir1SHA3, dir2SHA3, fileOtherSHA3 string
+	var dir1SHA4, dir2SHA4, fileOtherSHA4, fileSHA4 string
 
-	t.Log("TEST-1: init upstream and verify 1st commit after mirror")
+	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
+		fileSHA1 = env.initUpstream("file", env.name+"-main-1")
+		env.createAndMirror("", "")
 
-	fileSHA1 := mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
+		env.assertCommitLog("HEAD", "", fileSHA1, env.name+"-main-1", []string{"file"})
+		env.assertCommitLog(testMainBranch, "", fileSHA1, env.name+"-main-1", []string{"file"})
+	})
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
+	t.Run("forward HEAD and create dir1 on HEAD", func(t *testing.T) {
+		dir1SHA2 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
+		fileSHA2 = env.commit("file", env.name+"-main-2")
+		env.mirror()
 
-	assertCommitLog(t, repo, "HEAD", "", fileSHA1, t.Name()+"-main-1", []string{"file"})
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA1, t.Name()+"-main-1", []string{"file"})
+		env.assertCommitLog("HEAD", "", fileSHA2, env.name+"-main-2", []string{"file"})
+		env.assertCommitLog(testMainBranch, "", fileSHA2, env.name+"-main-2", []string{"file"})
+		env.assertCommitLog("HEAD", "dir1", dir1SHA2, env.name+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
+		env.assertCommitLog(testMainBranch, "dir1", dir1SHA2, env.name+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
+	})
 
-	t.Log("TEST-2: forward HEAD and create dir1 on HEAD")
+	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
+		dir1SHA3 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-3")
 
-	dir1SHA2 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
-	fileSHA2 := mustCommit(t, upstream, "file", t.Name()+"-main-2")
+		env.exec("git", "checkout", "-q", "-b", otherBranch)
+		dir2SHA3 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-3")
+		fileOtherSHA3 = env.commit("file", env.name+"-other-3")
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-	// log @ root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA2, t.Name()+"-main-2", []string{"file"})
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA2, t.Name()+"-main-2", []string{"file"})
-	// log @ dir1
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA2, t.Name()+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA2, t.Name()+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
+		env.exec("git", "checkout", "-q", testMainBranch)
+		fileSHA3 = env.commit("file", env.name+"-main-3")
+		env.mirror()
 
-	t.Log("TEST-3: forward HEAD and create other-branch")
+		env.assertCommitLog("HEAD", "", fileSHA3, env.name+"-main-3", []string{"file"})
+		env.assertCommitLog(testMainBranch, "dir1", dir1SHA3, env.name+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+		env.assertCommitLog(testMainBranch, "dir2", "", "", nil)
 
-	dir1SHA3 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-3")
-	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
-	dir2SHA3 := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-3")
-	fileOtherSHA3 := mustCommit(t, upstream, "file", t.Name()+"-other-3")
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	fileSHA3 := mustCommit(t, upstream, "file", t.Name()+"-main-3")
+		env.assertCommitLog(otherBranch, "", fileOtherSHA3, env.name+"-other-3", []string{"file"})
+		env.assertCommitLog(otherBranch, "dir2", dir2SHA3, env.name+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		wantDiff := []repository.CommitInfo{
+			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		}
+		if diff := cmp.Diff(wantDiff, env.branchCommits(otherBranch)); diff != "" {
+			t.Errorf("BranchCommits mismatch (-want +got):\n%s", diff)
+		}
+	})
 
-	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA3, t.Name()+"-main-3", []string{"file"})
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA3, t.Name()+"-main-3", []string{"file"})
-	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
-	// log @ other-branch
-	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA3, t.Name()+"-other-3", []string{"file"})
-	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
+	t.Run("forward HEAD and other-branch", func(t *testing.T) {
+		dir1SHA4 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-4")
+		env.exec("git", "checkout", "-q", otherBranch)
+		dir2SHA4 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-4")
+		fileOtherSHA4 = env.commit("file", env.name+"-other-4")
+		env.exec("git", "checkout", "-q", testMainBranch)
+		fileSHA4 = env.commit("file", env.name+"-main-4")
 
-	wantDiffList := []repository.CommitInfo{
-		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-	}
-	if got, err := repo.BranchCommits(txtCtx, otherBranch); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
-		t.Errorf("BranchCommits() mismatch (-want +got):\n%s", diff)
-	}
+		env.mirror()
 
-	t.Log("TEST-4: forward HEAD and other-branch")
+		env.assertCommitLog("HEAD", "", fileSHA4, env.name+"-main-4", []string{"file"})
+		env.assertCommitLog(testMainBranch, "dir1", dir1SHA4, env.name+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
+		env.assertCommitLog(otherBranch, "", fileOtherSHA4, env.name+"-other-4", []string{"file"})
+		env.assertCommitLog(otherBranch, "dir2", dir2SHA4, env.name+"-dir2-other-4", []string{filepath.Join("dir2", "file")})
 
-	dir1SHA4 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-4")
-	mustExec(t, upstream, "git", "checkout", "-q", otherBranch)
-	dir2SHA4 := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-4")
-	fileOtherSHA4 := mustCommit(t, upstream, "file", t.Name()+"-other-4")
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	fileSHA4 := mustCommit(t, upstream, "file", t.Name()+"-main-4")
+		wantDiff := []repository.CommitInfo{
+			{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		}
+		if diff := cmp.Diff(wantDiff, env.branchCommits(otherBranch)); diff != "" {
+			t.Errorf("BranchCommits mismatch (-want +got):\n%s", diff)
+		}
+	})
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+	t.Run("move HEAD and other-branch backward to test3", func(t *testing.T) {
+		env.exec("git", "checkout", "-q", otherBranch)
+		env.exec("git", "reset", "-q", "--hard", fileOtherSHA3)
+		env.exec("git", "checkout", "-q", testMainBranch)
+		env.exec("git", "reset", "-q", "--hard", fileSHA3)
 
-	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA4, t.Name()+"-main-4", []string{"file"})
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA4, t.Name()+"-main-4", []string{"file"})
-	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA4, t.Name()+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA4, t.Name()+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
-	// log @ other-branch
-	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA4, t.Name()+"-other-4", []string{"file"})
-	// dir1 on other-branch will be always behind
-	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA4, t.Name()+"-dir2-other-4", []string{filepath.Join("dir2", "file")})
+		env.mirror()
 
-	wantDiffList = []repository.CommitInfo{
-		// new commits
-		{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
-		{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-		// old commits
-		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-	}
-	if got, err := repo.BranchCommits(txtCtx, otherBranch); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
-		t.Errorf("BranchCommits() mismatch (-want +got):\n%s", diff)
-	}
+		env.assertCommitLog("HEAD", "", fileSHA3, env.name+"-main-3", []string{"file"})
+		env.assertCommitLog(testMainBranch, "dir1", dir1SHA3, env.name+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+		env.assertCommitLog(otherBranch, "", fileOtherSHA3, env.name+"-other-3", []string{"file"})
 
-	t.Log("TEST-4: move HEAD and other-branch backward to test3")
+		wantDiff := []repository.CommitInfo{
+			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		}
+		if diff := cmp.Diff(wantDiff, env.branchCommits(otherBranch)); diff != "" {
+			t.Errorf("BranchCommits mismatch (-want +got):\n%s", diff)
+		}
+	})
 
-	mustExec(t, upstream, "git", "checkout", "-q", otherBranch)
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", fileOtherSHA3)
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", fileSHA3)
+	t.Run("move HEAD backward to test1 and delete other-branch", func(t *testing.T) {
+		env.exec("git", "branch", "-D", otherBranch)
+		env.exec("git", "reset", "-q", "--hard", fileSHA1)
+		env.mirror()
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		env.assertCommitLog("HEAD", "", fileSHA1, env.name+"-main-1", []string{"file"})
+		env.assertCommitLog("HEAD", "dir1", "", "", nil)
 
-	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA3, t.Name()+"-main-3", []string{"file"})
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA3, t.Name()+"-main-3", []string{"file"})
-	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
-	// log @ other-branch
-	assertCommitLog(t, repo, otherBranch, "", fileOtherSHA3, t.Name()+"-other-3", []string{"file"})
-	assertCommitLog(t, repo, otherBranch, "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, otherBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
-
-	wantDiffList = []repository.CommitInfo{
-		// old commits
-		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-	}
-	if got, err := repo.BranchCommits(txtCtx, otherBranch); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
-		t.Errorf("BranchCommits() mismatch (-want +got):\n%s", diff)
-	}
-
-	t.Log("TEST-5: move HEAD backward to test1 and delete other-branch")
-
-	mustExec(t, upstream, "git", "branch", "-D", otherBranch)
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", fileSHA1)
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-
-	// log @ HEAD on root
-	assertCommitLog(t, repo, "HEAD", "", fileSHA1, t.Name()+"-main-1", []string{"file"})
-	assertCommitLog(t, repo, testMainBranch, "", fileSHA1, t.Name()+"-main-1", []string{"file"})
-	// log @ HEAD on dir
-	assertCommitLog(t, repo, "HEAD", "dir1", "", "", nil)
-	assertCommitLog(t, repo, testMainBranch, "dir1", "", "", nil)
-	assertCommitLog(t, repo, testMainBranch, "dir2", "", "", nil)
-
-	// all checks on other-branch should fail
-	if _, err := repo.Hash(txtCtx, otherBranch, ""); err == nil {
-		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
-	}
-	if _, err := repo.Hash(txtCtx, otherBranch, "dir1"); err == nil {
-		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
-	}
+		if _, err := env.repo.Hash(txtCtx, otherBranch, ""); err == nil {
+			t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
+		}
+	})
 }
 
 func Test_commit_hash_files_merge(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
 	otherBranch := "other-branch"
+	var fileSHA2, dir1SHA2, dir1SHA3, dir2SHA3, fileOtherSHA3 string
+	var mergeCommit1, mergeCommit2, mergeCommit3 string
 
-	t.Log("TEST-1: init upstream and verify 1st commit after mirror")
+	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
+		env.initUpstream("file", env.name+"-main-1")
+		env.createAndMirror("", "")
+	})
 
-	mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
+	t.Run("forward HEAD and create dir1 on HEAD", func(t *testing.T) {
+		dir1SHA2 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
+		fileSHA2 = env.commit("file", env.name+"-main-2")
+		env.mirror()
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
+		env.assertCommitLog("HEAD", "", fileSHA2, env.name+"-main-2", []string{"file"})
+		env.assertCommitLog("HEAD", "dir1", dir1SHA2, env.name+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
+	})
 
-	t.Log("TEST-2: forward HEAD and create dir1 on HEAD")
+	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
+		dir1SHA3 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-3")
 
-	dir1SHA2 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
-	fileSHA2 := mustCommit(t, upstream, "file", t.Name()+"-main-2")
+		env.exec("git", "checkout", "-q", "-b", otherBranch)
+		dir2SHA3 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-3")
+		fileOtherSHA3 = env.commit("file", env.name+"-other-3")
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		env.exec("git", "checkout", "-q", testMainBranch)
+		env.commit("file2", env.name+"-main-3")
 
-	assertCommitLog(t, repo, "HEAD", "", fileSHA2, t.Name()+"-main-2", []string{"file"})
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA2, t.Name()+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
+		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v1")
+		mergeCommit1 = env.exec("git", "rev-list", "-n1", "HEAD")
 
-	t.Log("TEST-3: forward HEAD and create other-branch")
+		env.mirror()
 
-	dir1SHA3 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-3")
-	// create branch and push commits
-	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
-	dir2SHA3 := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-3")
-	fileOtherSHA3 := mustCommit(t, upstream, "file", t.Name()+"-other-3")
-	// check out master and push more commit
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	mustCommit(t, upstream, "file2", t.Name()+"-main-3")
-	// merge other branch to master and get merge commit
-	mustExec(t, upstream, "git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v1")
-	mergeCommit1 := mustExec(t, upstream, "git", "rev-list", "-n1", "HEAD")
+		env.assertCommitLog("HEAD", "", mergeCommit1, "Merging otherBranch with no-ff v1", []string{})
+		env.assertCommitLog("HEAD", "dir1", dir1SHA3, env.name+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
+		env.assertCommitLog(testMainBranch, "dir2", dir2SHA3, env.name+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		wantDiff := []repository.CommitInfo{
+			{Hash: mergeCommit1},
+			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		}
+		if diff := cmp.Diff(wantDiff, env.mergeCommits(mergeCommit1)); diff != "" {
+			t.Errorf("MergeCommits mismatch (-want +got):\n%s", diff)
+		}
+	})
 
-	assertCommitLog(t, repo, "HEAD", "", mergeCommit1, "Merging otherBranch with no-ff v1", []string{})
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA3, t.Name()+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir2", dir2SHA3, t.Name()+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
+	t.Run("add more commits to same other-branch and merge", func(t *testing.T) {
+		dir1SHA4 := env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-4")
 
-	wantDiffList := []repository.CommitInfo{
-		{Hash: mergeCommit1},
-		{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-		{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-	}
-	if got, err := repo.MergeCommits(txtCtx, mergeCommit1); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
-		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
-	}
+		env.exec("git", "checkout", "-q", otherBranch)
+		dir2SHA4 := env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-4")
+		fileOtherSHA4 := env.commit("file", env.name+"-other-4")
 
-	t.Log("TEST-4: add more commits to same other-branch and merge")
+		env.exec("git", "checkout", "-q", testMainBranch)
+		env.commit("file2", env.name+"-main-4")
 
-	dir1SHA4 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-4")
-	// switch to other branch and push commits
-	mustExec(t, upstream, "git", "checkout", "-q", otherBranch)
-	dir2SHA4 := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-4")
-	fileOtherSHA4 := mustCommit(t, upstream, "file", t.Name()+"-other-4")
-	// check out master and push more commit
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	mustCommit(t, upstream, "file2", t.Name()+"-main-4")
-	// merge other branch to master and get merge commit
-	mustExec(t, upstream, "git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v2")
-	mergeCommit2 := mustExec(t, upstream, "git", "rev-list", "-n1", "HEAD")
+		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v2")
+		mergeCommit2 = env.exec("git", "rev-list", "-n1", "HEAD")
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		env.mirror()
 
-	assertCommitLog(t, repo, "HEAD", "", mergeCommit2, "Merging otherBranch with no-ff v2", []string{})
-	assertCommitLog(t, repo, testMainBranch, "dir1", dir1SHA4, t.Name()+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, testMainBranch, "dir2", dir2SHA4, t.Name()+"-dir2-other-4", []string{filepath.Join("dir2", "file")})
+		env.assertCommitLog("HEAD", "", mergeCommit2, "Merging otherBranch with no-ff v2", []string{})
+		env.assertCommitLog(testMainBranch, "dir1", dir1SHA4, env.name+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
 
-	wantDiffList = []repository.CommitInfo{
-		{Hash: mergeCommit2},
-		// new commits on same branch
-		{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
-		{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-	}
-	if got, err := repo.MergeCommits(txtCtx, mergeCommit2); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
-		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
-	}
+		wantDiff := []repository.CommitInfo{
+			{Hash: mergeCommit2},
+			{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		}
+		if diff := cmp.Diff(wantDiff, env.mergeCommits(mergeCommit2)); diff != "" {
+			t.Errorf("MergeCommits mismatch (-want +got):\n%s", diff)
+		}
+	})
 
-	t.Log("TEST-5: create new branch and then do squash merge")
-	otherBranch = otherBranch + "v2"
+	t.Run("create new branch and then do squash merge", func(t *testing.T) {
+		otherBranch = otherBranch + "v2"
+		dir1SHA5 := env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-5")
 
-	dir1SHA5 := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-5")
-	// create branch and push commits
-	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
-	mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-5")
-	mustCommit(t, upstream, "file", t.Name()+"-other-5")
-	// check out master and push more commit
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	mustCommit(t, upstream, "file2", t.Name()+"-main-5")
-	// merge other branch to master and get merge commit
-	mustExec(t, upstream, "git", "merge", "--squash", otherBranch)
-	mustExec(t, upstream, "git", "commit", "-m", "Merging otherBranch with squash v1")
-	mergeCommit3 := mustExec(t, upstream, "git", "rev-list", "-n1", "HEAD")
+		env.exec("git", "checkout", "-q", "-b", otherBranch)
+		env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-5")
+		env.commit("file", env.name+"-other-5")
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
+		env.exec("git", "checkout", "-q", testMainBranch)
+		env.commit("file2", env.name+"-main-5")
 
-	assertCommitLog(t, repo, "HEAD", "", mergeCommit3, "Merging otherBranch with squash v1", []string{})
-	assertCommitLog(t, repo, "HEAD", "dir1", dir1SHA5, t.Name()+"-dir1-main-5", []string{filepath.Join("dir1", "file")})
-	assertCommitLog(t, repo, "HEAD", "dir2", mergeCommit3, "Merging otherBranch with squash v1", []string{filepath.Join("dir2", "file"), "file"})
+		env.exec("git", "merge", "--squash", otherBranch)
+		env.exec("git", "commit", "-m", "Merging otherBranch with squash v1")
+		mergeCommit3 = env.exec("git", "rev-list", "-n1", "HEAD")
 
-	wantDiffList = []repository.CommitInfo{
-		{Hash: mergeCommit3, ChangedFiles: []string{filepath.Join("dir2", "file"), "file"}},
-	}
-	if got, err := repo.MergeCommits(txtCtx, mergeCommit3); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	} else if diff := cmp.Diff(wantDiffList, got); diff != "" {
-		t.Errorf("CommitsOfMergeCommit() mismatch (-want +got):\n%s", diff)
-	}
+		env.mirror()
+
+		env.assertCommitLog("HEAD", "", mergeCommit3, "Merging otherBranch with squash v1", []string{})
+		env.assertCommitLog("HEAD", "dir1", dir1SHA5, env.name+"-dir1-main-5", []string{filepath.Join("dir1", "file")})
+
+		wantDiff := []repository.CommitInfo{
+			{Hash: mergeCommit3, ChangedFiles: []string{filepath.Join("dir2", "file"), "file"}},
+		}
+		if diff := cmp.Diff(wantDiff, env.mergeCommits(mergeCommit3)); diff != "" {
+			t.Errorf("MergeCommits mismatch (-want +got):\n%s", diff)
+		}
+	})
 }
 
 func Test_clone_branch(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+
 	tempClone := mustTmpDir(t)
 	defer os.RemoveAll(tempClone)
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
 	otherBranch := "other-branch"
+	var remoteSHA, remoteSHA2, remoteOtherSHA string
 
-	t.Log("TEST-1: init upstream and verify 1st commit after mirror")
+	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
+		env.initUpstream("file", env.name+"-main-1")
+		remoteSHA = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-1")
+		env.createAndMirror("", "")
 
-	mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
-	remoteSHA := mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-1")
-
-	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
-
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, testMainBranch, nil, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteSHA {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
-	}
+		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
+	})
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
-	}
+	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
+		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
+		env.exec("git", "checkout", "-q", "-b", otherBranch)
+		env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-2")
+		remoteOtherSHA = env.commit("file", env.name+"-other-2")
+		env.exec("git", "checkout", "-q", testMainBranch)
+		remoteSHA2 = env.commit("file", env.name+"-main-2")
+		env.mirror()
 
-	t.Log("TEST-2: forward HEAD and create other-branch")
-
-	mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
-	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
-	mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-2")
-	remoteOtherSHA := mustCommit(t, upstream, "file", t.Name()+"-other-2")
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	remoteSHA2 := mustCommit(t, upstream, "file", t.Name()+"-main-2")
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-
-	// Clone other branch
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteOtherSHA {
+		// Clone other branch
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, otherBranch, nil, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteOtherSHA {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-other-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), t.Name()+"-dir2-other-2")
-	}
+		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-other-2")
 
-	// Clone other branch with dir2 pathspec
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, []string{"dir2"}, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteOtherSHA {
+		// Clone other branch with dir2 pathspec
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, otherBranch, []string{"dir2"}, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteOtherSHA {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
 		}
 		assertMissingFile(t, tempClone, "file")
-		assertMissingFile(t, filepath.Join(tempClone, "dir1"), "/file")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), t.Name()+"-dir2-other-2")
-	}
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), env.name+"-dir2-other-2")
 
-	// Clone main
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-	}
-
-	// Clone main
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, []string{"dir1"}, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA2 {
+		// Clone main with dir1
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, testMainBranch, []string{"dir1"}, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteSHA2 {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
 		}
 		assertMissingFile(t, tempClone, "file")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
-	}
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-2")
+	})
 
-	// Clone HEAD
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-	}
+	t.Run("move HEAD backward to init", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", remoteSHA)
+		env.mirror()
 
-	// Clone HEAD
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", []string{"dir1"}, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
-		}
-		assertMissingFile(t, tempClone, "file")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
-	}
-
-	t.Log("TEST-3: move HEAD backward to init")
-	// do not delete other-branch
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", remoteSHA)
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, testMainBranch, nil, true); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, testMainBranch, nil, true); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteSHA {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
+		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
 		assertMissingFile(t, tempClone, ".git")
-	}
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, "HEAD", nil, true); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, "HEAD", nil, true); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteSHA {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
+		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
 		assertMissingFile(t, tempClone, ".git")
-	}
+	})
 
-	// we still have other branch
-	// Clone other branch with dir2 pathspec
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, otherBranch, []string{"dir1"}, true); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteOtherSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
+	t.Run("delete other branch", func(t *testing.T) {
+		env.exec("git", "branch", "-D", otherBranch)
+		env.mirror()
+
+		if _, err := env.repo.Clone(txtCtx, tempClone, otherBranch, nil, true); err == nil {
+			t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
 		}
-		assertMissingFile(t, tempClone, "file")
-		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-		assertMissingFile(t, tempClone, ".git")
-	}
-
-	t.Log("TEST-4: delete other branch")
-	mustExec(t, upstream, "git", "branch", "-D", otherBranch)
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-
-	if _, err := repo.Clone(txtCtx, tempClone, otherBranch, nil, true); err == nil {
-		t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
-	}
+	})
 }
 
 func Test_clone_tag_sha(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
 	tempClone := mustTmpDir(t)
 	defer os.RemoveAll(tempClone)
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
 	otherBranch := "other-branch"
 	tag := "e2e-tag"
-	sha := "" // will be calculated later
+	var sha, remoteDir2SHA, remoteOtherSHA, remoteSHA2 string
 
-	t.Log("TEST-1: init upstream and verify 1st commit after mirror")
+	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
+		env.initUpstream("file", env.name+"-main-1")
+		sha = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-1")
+		env.exec("git", "tag", "-af", tag, "-m", env.name+"-main-1")
 
-	mustInitRepo(t, upstream, "file", t.Name()+"-main-1")
-	sha = mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-1")
-	// add tag at current commit
-	mustExec(t, upstream, "git", "tag", "-af", tag, "-m", t.Name()+"-main-1")
+		env.createAndMirror("", "")
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, "", "")
-
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != sha {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != sha {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
-	}
+		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
 
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != sha {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, sha, nil, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != sha {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
-	}
+		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
+	})
 
-	t.Log("TEST-2: forward HEAD and create other-branch")
+	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
+		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
+		env.exec("git", "checkout", "-q", "-b", otherBranch)
+		remoteDir2SHA = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-2")
+		remoteOtherSHA = env.commit("file", env.name+"-other-2")
+		env.exec("git", "checkout", "-q", testMainBranch)
+		remoteSHA2 = env.commit("file", env.name+"-main-2")
+		env.exec("git", "tag", "-af", tag, "-m", env.name+"-main-2")
 
-	mustCommit(t, upstream, filepath.Join("dir1", "file"), t.Name()+"-dir1-main-2")
-	mustExec(t, upstream, "git", "checkout", "-q", "-b", otherBranch)
-	remoteDir2SHA := mustCommit(t, upstream, filepath.Join("dir2", "file"), t.Name()+"-dir2-other-2")
-	remoteOtherSHA := mustCommit(t, upstream, "file", t.Name()+"-other-2")
-	mustExec(t, upstream, "git", "checkout", "-q", testMainBranch)
-	remoteSHA2 := mustCommit(t, upstream, "file", t.Name()+"-main-2")
-	mustExec(t, upstream, "git", "tag", "-af", tag, "-m", t.Name()+"-main-2")
+		env.mirror()
 
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-
-	// Clone sha without path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteOtherSHA, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteOtherSHA {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, remoteOtherSHA, nil, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteOtherSHA {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-other-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), t.Name()+"-dir2-other-2")
-	}
+		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-other-2")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-2")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), env.name+"-dir2-other-2")
 
-	// Clone sha with path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, remoteDir2SHA, []string{"dir2"}, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteDir2SHA {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, remoteDir2SHA, []string{"dir2"}, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteDir2SHA {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir2SHA)
 		}
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), t.Name()+"-dir2-other-2")
-	}
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), env.name+"-dir2-other-2")
 
-	// Clone tag without path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, tag, []string{"dir1"}, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != remoteSHA2 {
+			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir2SHA)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-	}
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-2")
+	})
 
-	// Clone tag with path
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, []string{"dir1"}, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != remoteSHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
-		}
-		assertMissingFile(t, tempClone, "file")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-2")
-		assertMissingFile(t, filepath.Join(tempClone, "dir2"), "/file")
-	}
+	t.Run("move HEAD backward to init", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", sha)
+		env.exec("git", "tag", "-af", tag, "-m", env.name+"-main-3")
+		env.mirror()
 
-	t.Log("TEST-3: move HEAD backward to init")
-	// do not delete other-branch
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", sha)
-	mustExec(t, upstream, "git", "tag", "-af", tag, "-m", t.Name()+"-main-3")
-
-	// mirror new commits
-	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
-	}
-
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != sha {
+		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
+			t.Fatalf("unexpected error %s", err)
+		} else if cloneSHA != sha {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
-	}
-
-	if cloneSHA, err := repo.Clone(txtCtx, tempClone, sha, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != sha {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), t.Name()+"-dir1-main-1")
-	}
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
+		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
+	})
 }
 
 func Test_mirror_loop(t *testing.T) {
-	testTmpDir := mustTmpDir(t)
-	defer os.RemoveAll(testTmpDir)
+	env := setupEnv(t)
+	defer env.cleanup()
+	link1, link2 := "link1", "link2"
+	ref1, ref2 := testMainBranch, "HEAD"
 
-	upstream := filepath.Join(testTmpDir, testUpstreamRepo)
-	root := filepath.Join(testTmpDir, testRoot)
-	link1 := "link1" // on testBranchMain branch
-	link2 := "link2" // on remote HEAD
-	ref1 := testMainBranch
-	ref2 := "HEAD"
+	t.Run("init upstream and start mirror loop", func(t *testing.T) {
+		env.initUpstream("file", env.name+"-1")
+		env.createAndMirror(link1, ref1)
+		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
 
-	t.Log("TEST-1: init upstream and start mirror loop")
-	mustInitRepo(t, upstream, "file", t.Name()+"-1")
+		go env.repo.StartLoop(txtCtx)
+		time.Sleep(testInterval)
+		if !env.repo.IsRunning() {
+			t.Errorf("repo running state is still false after starting mirror loop")
+		}
 
-	repo := mustCreateRepoAndMirror(t, upstream, root, link1, ref1)
-	// add worktree for HEAD
-	if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}}); err != nil {
-		t.Fatalf("unable to add worktree error: %v", err)
-	}
+		time.Sleep(testInterval)
+		env.assertFileLinked(link1, "file", env.name+"-1")
+		env.assertFileLinked(link2, "file", env.name+"-1")
+	})
 
-	go repo.StartLoop(txtCtx)
+	t.Run("forward HEAD", func(t *testing.T) {
+		env.commit("file", env.name+"-2")
+		time.Sleep(testInterval * 2)
+		env.assertFileLinked(link1, "file", env.name+"-2")
+		env.assertFileLinked(link2, "file", env.name+"-2")
+	})
 
-	time.Sleep(testInterval)
-	if repo.IsRunning() != true {
-		t.Errorf("repo running state is still false after starting mirror loop")
-	}
+	t.Run("move HEAD backward", func(t *testing.T) {
+		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		time.Sleep(testInterval * 2)
+		env.assertFileLinked(link1, "file", env.name+"-1")
+		env.assertFileLinked(link2, "file", env.name+"-1")
 
-	// wait for the mirror
-	time.Sleep(testInterval)
-
-	// verify checkout files
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
-
-	t.Log("TEST-2: forward HEAD")
-
-	mustCommit(t, upstream, "file", t.Name()+"-2")
-
-	// wait for the mirror
-	time.Sleep(testInterval)
-
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-2")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-2")
-
-	t.Log("TEST-3: move HEAD backward")
-
-	mustExec(t, upstream, "git", "reset", "-q", "--hard", "HEAD^")
-
-	// wait for the mirror
-	time.Sleep(testInterval)
-
-	assertLinkedFile(t, root, link1, "file", t.Name()+"-1")
-	assertLinkedFile(t, root, link2, "file", t.Name()+"-1")
-
-	// STOP mirror loop
-	repo.StopLoop()
-	if repo.IsRunning() {
-		t.Errorf("repo still running after calling StopLoop")
-	}
+		env.repo.StopLoop()
+		if env.repo.IsRunning() {
+			t.Errorf("repo still running after calling StopLoop")
+		}
+	})
 }
 
 // ##############################################
@@ -1357,9 +926,9 @@ func Test_mirror_loop(t *testing.T) {
 // ##############################################
 
 func Test_RepoPool_Success(t *testing.T) {
+	testName := t.Name()
 	testTmpDir := mustTmpDir(t)
 	defer os.RemoveAll(testTmpDir)
-
 	tempClone := mustTmpDir(t)
 	defer os.RemoveAll(tempClone)
 
@@ -1369,194 +938,102 @@ func Test_RepoPool_Success(t *testing.T) {
 	remote2 := "file://" + upstream2
 	root := filepath.Join(testTmpDir, testRoot)
 
-	t.Log("TEST-1: init both upstream and test mirrors")
+	var fileU1SHA1, fileU2SHA1, fileU1SHA2, fileU2SHA2 string
+	var rp *repopool.RepoPool
 
-	fileU1SHA1 := mustInitRepo(t, upstream1, "file", t.Name()+"-u1-main-1")
-	fileU2SHA1 := mustInitRepo(t, upstream2, "file", t.Name()+"-u2-main-1")
+	t.Run("init both upstream and test mirrors", func(t *testing.T) {
+		fileU1SHA1 = mustInitRepo(t, upstream1, "file", testName+"-u1-main-1")
+		fileU2SHA1 = mustInitRepo(t, upstream2, "file", testName+"-u2-main-1")
 
-	rpc := repopool.Config{
-		Defaults: repopool.DefaultConfig{
-			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
-		},
-		Repositories: []repository.Config{
-			{
-				Remote:    remote1,
-				Worktrees: []repository.WorktreeConfig{{Link: "link1"}},
+		rpc := repopool.Config{
+			Defaults: repopool.DefaultConfig{
+				Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 			},
-			{
-				Remote:    remote2,
-				Worktrees: []repository.WorktreeConfig{{Link: "link2"}},
+			Repositories: []repository.Config{
+				{Remote: remote1, Worktrees: []repository.WorktreeConfig{{Link: "link1"}}},
+				{Remote: remote2, Worktrees: []repository.WorktreeConfig{{Link: "link2"}}},
 			},
-		},
-	}
+		}
 
-	rp, err := repopool.New(t.Context(), rpc, testLog, "", testENVs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		var err error
+		rp, err = repopool.New(context.Background(), rpc, testLog, "", testENVs)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
 
-	// add worktree
-	// we will verify this worktree in next mirror loop
-	if err := rp.AddWorktreeLink(remote1, repository.WorktreeConfig{Link: "link3", Ref: "", Pathspecs: []string{}}); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	}
+		if err := rp.AddWorktreeLink(remote1, repository.WorktreeConfig{Link: "link3", Ref: "", Pathspecs: []string{}}); err != nil {
+			t.Fatalf("unexpected err:%s", err)
+		}
+		if err := rp.MirrorAll(context.TODO(), testTimeout); err != nil {
+			t.Fatalf("unexpected err:%s", err)
+		}
 
-	// run initial mirror
-	if err := rp.MirrorAll(context.TODO(), testTimeout); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	}
+		if got, _ := rp.Hash(txtCtx, remote1, "HEAD", ""); got != fileU1SHA1 {
+			t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA1)
+		}
+		if got, _ := rp.Hash(txtCtx, remote2, "HEAD", ""); got != fileU2SHA1 {
+			t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU2SHA1)
+		}
 
-	// verify Hash and checked out files
-	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU1SHA1 {
-		t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA1)
-	}
-	if got, err := rp.Hash(txtCtx, remote2, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU2SHA1 {
-		t.Errorf("remote2 hash mismatch got:%s want:%s", got, fileU2SHA1)
-	}
+		assertLinkedFile(t, root, "link1", "file", testName+"-u1-main-1")
+		assertLinkedFile(t, root, "link2", "file", testName+"-u2-main-1")
 
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, "link1", "file", t.Name()+"-u1-main-1")
-	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-1")
-
-	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != fileU1SHA1 {
+		if cloneSHA, _ := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); cloneSHA != fileU1SHA1 {
 			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, fileU1SHA1)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u1-main-1")
-	}
+		assertFile(t, filepath.Join(tempClone, "file"), testName+"-u1-main-1")
+	})
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != fileU2SHA1 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, fileU2SHA1)
+	t.Run("forward both upstream and test mirrors", func(t *testing.T) {
+		rp.StartLoop()
+		time.Sleep(time.Second)
+
+		fileU1SHA2 = mustCommit(t, upstream1, "file", testName+"-u1-main-2")
+		fileU2SHA2 = mustCommit(t, upstream2, "file", testName+"-u2-main-2")
+
+		time.Sleep(2 * time.Second)
+
+		if got, _ := rp.Hash(txtCtx, remote1, "HEAD", ""); got != fileU1SHA2 {
+			t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA2)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u2-main-1")
-	}
-
-	t.Log("TEST-2: forward both upstream and test mirrors")
-
-	// start mirror loop
-	rp.StartLoop()
-
-	time.Sleep(time.Second)
-	// start mirror loop again this should be no op
-	rp.StartLoop()
-
-	fileU1SHA2 := mustCommit(t, upstream1, "file", t.Name()+"-u1-main-2")
-	fileU2SHA2 := mustCommit(t, upstream2, "file", t.Name()+"-u2-main-2")
-
-	// wait for the mirror
-	time.Sleep(time.Second)
-
-	// verify Hash, commit msg and checked out files
-	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU1SHA2 {
-		t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA2)
-	}
-	if got, err := rp.Hash(txtCtx, remote2, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU2SHA2 {
-		t.Errorf("remote2 hash mismatch got:%s want:%s", got, fileU2SHA2)
-	}
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, "link1", "file", t.Name()+"-u1-main-2")
-	assertLinkedFile(t, root, "link3", "file", t.Name()+"-u1-main-2")
-	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-2")
-
-	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != fileU1SHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, fileU1SHA2)
+		if got, _ := rp.Hash(txtCtx, remote2, "HEAD", ""); got != fileU2SHA2 {
+			t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU2SHA2)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u1-main-2")
-	}
+		assertLinkedFile(t, root, "link1", "file", testName+"-u1-main-2")
+		assertLinkedFile(t, root, "link2", "file", testName+"-u2-main-2")
+		assertLinkedFile(t, root, "link3", "file", testName+"-u1-main-2")
+	})
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != fileU2SHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, fileU2SHA2)
+	t.Run("move HEAD backward on both upstream and test mirrors", func(t *testing.T) {
+		mustExec(t, upstream1, "git", "reset", "-q", "--hard", fileU1SHA1)
+		mustExec(t, upstream2, "git", "reset", "-q", "--hard", fileU2SHA1)
+
+		time.Sleep(2 * time.Second)
+
+		if got, _ := rp.Hash(txtCtx, remote1, "HEAD", ""); got != fileU1SHA1 {
+			t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA1)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u2-main-2")
-	}
-
-	t.Log("TEST-3: move HEAD backward on both upstream and test mirrors")
-
-	mustExec(t, upstream1, "git", "reset", "-q", "--hard", fileU1SHA1)
-	mustExec(t, upstream2, "git", "reset", "-q", "--hard", fileU2SHA1)
-
-	// wait for the mirror
-	time.Sleep(2 * time.Second)
-
-	// verify Hash and checked out files
-	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU1SHA1 {
-		t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA1)
-	}
-	if got, err := rp.Hash(txtCtx, remote2, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU2SHA1 {
-		t.Errorf("remote2 hash mismatch got:%s want:%s", got, fileU2SHA1)
-	}
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, "link1", "file", t.Name()+"-u1-main-1")
-	assertLinkedFile(t, root, "link3", "file", t.Name()+"-u1-main-1")
-	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-1")
-
-	// remove worktrees
-	if err := rp.RemoveWorktreeLink(remote2, "link2"); err != nil {
-		t.Errorf("unable to remove worktree error: %v", err)
-	}
-	// wait for the mirror
-	time.Sleep(2 * time.Second)
-
-	assertMissingLink(t, root, "link2")
-
-	if cloneSHA, err := rp.Clone(txtCtx, remote1, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != fileU1SHA1 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, fileU1SHA1)
+		if got, _ := rp.Hash(txtCtx, remote2, "HEAD", ""); got != fileU2SHA1 {
+			t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU2SHA1)
 		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u1-main-1")
-	}
+		assertLinkedFile(t, root, "link1", "file", testName+"-u1-main-1")
+		assertLinkedFile(t, root, "link2", "file", testName+"-u2-main-1")
+		assertLinkedFile(t, root, "link3", "file", testName+"-u1-main-1")
 
-	if cloneSHA, err := rp.Clone(txtCtx, remote2, tempClone, testMainBranch, nil, false); err != nil {
-		t.Fatalf("unexpected error %s", err)
-	} else {
-		if cloneSHA != fileU2SHA1 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, fileU2SHA1)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), t.Name()+"-u2-main-1")
-	}
+		rp.RemoveWorktreeLink(remote2, "link2")
+		time.Sleep(2 * time.Second)
+		assertMissingLink(t, root, "link2")
 
-	// remove repository
-	repo, _ := rp.Repository(remote1)
-	if err := rp.RemoveRepository(remote1); err != nil {
-		t.Errorf("unable to remove repository error: %v", err)
-	}
-	if len(rp.RepositoriesRemote()) > 1 {
-		t.Errorf("there should be only 1 repo in repoPool now")
-	}
-	// once repo is removed public link should be removed
-	assertMissingLink(t, root, "link1")
-	// root dir should be empty
-	assertMissingLink(t, repo.Directory(), "")
+		repo, _ := rp.Repository(remote1)
+		rp.RemoveRepository(remote1)
+		// once repo is removed public link should be removed
+		assertMissingLink(t, root, "link1")
+		// root dir should be empty
+		assertMissingLink(t, repo.Directory(), "")
+	})
 }
-
 func Test_RepoPool_Error(t *testing.T) {
+	testName := t.Name()
 	testTmpDir := mustTmpDir(t)
 	defer os.RemoveAll(testTmpDir)
 
@@ -1568,118 +1045,166 @@ func Test_RepoPool_Error(t *testing.T) {
 
 	nonExistingRemote := "file://" + filepath.Join(testTmpDir, "upstream3.git")
 
-	t.Log("TEST-1: init both upstream and test mirrors")
+	var rp *repopool.RepoPool
 
-	fileU1SHA1 := mustInitRepo(t, upstream1, "file", t.Name()+"-u1-main-1")
-	fileU2SHA1 := mustInitRepo(t, upstream2, "file", t.Name()+"-u2-main-1")
+	t.Run("init both upstream and test mirrors", func(t *testing.T) {
+		mustInitRepo(t, upstream1, "file", testName+"-u1-main-1")
+		mustInitRepo(t, upstream2, "file", testName+"-u2-main-1")
 
-	rpc := repopool.Config{
-		Defaults: repopool.DefaultConfig{
-			Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
-		},
-		Repositories: []repository.Config{
-			{
-				Remote:    remote1,
-				Worktrees: []repository.WorktreeConfig{{Link: "link1"}},
+		rpc := repopool.Config{
+			Defaults: repopool.DefaultConfig{
+				Root: root, Interval: testInterval, MirrorTimeout: testTimeout, GitGC: "always",
 			},
-			{
-				Remote:    remote2,
-				Worktrees: []repository.WorktreeConfig{{Link: "link2"}},
+			Repositories: []repository.Config{
+				{Remote: remote1, Worktrees: []repository.WorktreeConfig{{Link: "link1"}}},
+				{Remote: remote2, Worktrees: []repository.WorktreeConfig{{Link: "link2"}}},
 			},
-		},
-	}
+		}
 
-	rp, err := repopool.New(t.Context(), rpc, testLog, "", testENVs)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// start mirror loop
-	rp.StartLoop()
+		var err error
+		rp, err = repopool.New(context.Background(), rpc, testLog, "", testENVs)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		rp.StartLoop()
+		time.Sleep(2 * time.Second)
+		assertLinkedFile(t, root, "link1", "file", testName+"-u1-main-1")
+	})
 
-	time.Sleep(2 * time.Second)
+	t.Run("try adding existing repo again", func(t *testing.T) {
+		repo1, _ := rp.Repository(remote1)
+		if err := rp.AddRepository(repository.Config{Remote: repo1.Remote()}); err != repopool.ErrExist {
+			t.Errorf("error mismatch got:%s want:%s", err, repopool.ErrExist)
+		}
+	})
 
-	// verify Hash and checked out files
-	if got, err := rp.Hash(txtCtx, remote1, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU1SHA1 {
-		t.Errorf("remote1 hash mismatch got:%s want:%s", got, fileU1SHA1)
-	}
-	if got, err := rp.Hash(txtCtx, remote2, "HEAD", ""); err != nil {
-		t.Fatalf("unexpected err:%s", err)
-	} else if got != fileU2SHA1 {
-		t.Errorf("remote2 hash mismatch got:%s want:%s", got, fileU2SHA1)
-	}
-
-	// after mirror we should expect a symlink at root and a file with test function name
-	assertLinkedFile(t, root, "link1", "file", t.Name()+"-u1-main-1")
-	assertLinkedFile(t, root, "link2", "file", t.Name()+"-u2-main-1")
-
-	t.Log("TEST-2: try adding existing repo again")
-
-	repo1, err := rp.Repository(remote1)
-	if err != nil {
-		t.Errorf("unexpected err:%s", err)
-	}
-
-	if err := rp.AddRepository(repository.Config{Remote: repo1.Remote()}); err == nil {
-		t.Errorf("unexpected success for non existing repo")
-	} else if err != repopool.ErrExist {
-		t.Errorf("error mismatch got:%s want:%s", err, repopool.ErrNotExist)
-	}
-
-	// try getting repo with wrong URL
-	if _, err := rp.Repository("ssh://host.xh/repo.git"); err == nil {
-		t.Errorf("unexpected success for non existing repo")
-	}
-
-	t.Log("TEST-3: try non existing repo")
-	// check non existing repo
-	if _, err := rp.Repository(nonExistingRemote); err == nil {
-		t.Errorf("unexpected success for non existing repo")
-	} else if err != repopool.ErrNotExist {
-		t.Errorf("error mismatch got:%s want:%s", err, repopool.ErrNotExist)
-	}
-	if _, err := rp.Hash(context.Background(), nonExistingRemote, "HEAD", ""); err == nil {
-		t.Errorf("unexpected success for non existing repo")
-	} else if err != repopool.ErrNotExist {
-		t.Errorf("error mismatch got:%s want:%s", err, repopool.ErrNotExist)
-	}
-	if _, err := rp.Clone(context.Background(), nonExistingRemote, testTmpDir, "HEAD", nil, false); err == nil {
-		t.Errorf("unexpected success for non existing repo")
-	} else if err != repopool.ErrNotExist {
-		t.Errorf("error mismatch got:%s want:%s", err, repopool.ErrNotExist)
-	}
+	t.Run("try non existing repo", func(t *testing.T) {
+		if _, err := rp.Repository(nonExistingRemote); err != repopool.ErrNotExist {
+			t.Errorf("error mismatch got:%s want:%s", err, repopool.ErrNotExist)
+		}
+	})
 }
 
 // ##############################################
-// HELPER FUNCS
+// HELPER FUNCS AND FIXTURE
 // ##############################################
 
-func mustCreateRepoAndMirror(t *testing.T, upstream, root, link, ref string) *repository.Repository {
+type testEnv struct {
+	t        *testing.T
+	name     string
+	tmpDir   string
+	upstream string
+	root     string
+	repo     *repository.Repository
+}
+
+func setupEnv(t *testing.T) *testEnv {
 	t.Helper()
+	tmpDir := mustTmpDir(t)
+	return &testEnv{
+		t:        t,
+		name:     t.Name(),
+		tmpDir:   tmpDir,
+		upstream: filepath.Join(tmpDir, testUpstreamRepo),
+		root:     filepath.Join(tmpDir, testRoot),
+	}
+}
+
+func (e *testEnv) cleanup() {
+	e.t.Helper()
+	os.RemoveAll(e.tmpDir)
+}
+
+func (e *testEnv) initUpstream(file, content string) string {
+	e.t.Helper()
+	return mustInitRepo(e.t, e.upstream, file, content)
+}
+
+func (e *testEnv) commit(file, content string) string {
+	e.t.Helper()
+	return mustCommit(e.t, e.upstream, file, content)
+}
+
+func (e *testEnv) exec(command string, args ...string) string {
+	e.t.Helper()
+	return mustExec(e.t, e.upstream, command, args...)
+}
+
+func (e *testEnv) execInRepo(command string, args ...string) string {
+	e.t.Helper()
+	return mustExec(e.t, e.repo.Directory(), command, args...)
+}
+
+func (e *testEnv) createAndMirror(link, ref string) {
+	e.t.Helper()
 
 	// create mirror repo and add link for main branch
 	rc := repository.Config{
-		Remote:        "file://" + upstream,
-		Root:          root,
+		Remote:        "file://" + e.upstream,
+		Root:          e.root,
 		Interval:      testInterval,
 		MirrorTimeout: testTimeout,
 		GitGC:         "always",
 	}
 	repo, err := repository.New(rc, "", testENVs, testLog)
 	if err != nil {
-		t.Fatalf("unable to create new repo error: %v", err)
+		e.t.Fatalf("unable to create new repo error: %v", err)
 	}
 	if link != "" {
 		if err := repo.AddWorktreeLink(repository.WorktreeConfig{Link: link, Ref: ref, Pathspecs: []string{}}); err != nil {
-			t.Fatalf("unable to add worktree error: %v", err)
+			e.t.Fatalf("unable to add worktree error: %v", err)
 		}
 	}
 	// Trigger a mirror
 	if err := repo.Mirror(txtCtx); err != nil {
-		t.Fatalf("unable to mirror error: %v", err)
+		e.t.Fatalf("unable to mirror error: %v", err)
 	}
-	return repo
+	e.repo = repo
+}
+
+func (e *testEnv) mirror() {
+	e.t.Helper()
+	if err := e.repo.Mirror(txtCtx); err != nil {
+		e.t.Fatalf("unable to mirror error: %v", err)
+	}
+}
+
+func (e *testEnv) assertFileLinked(link, file, expected string) {
+	e.t.Helper()
+	assertLinkedFile(e.t, e.root, link, file, expected)
+}
+
+func (e *testEnv) assertMissingLink(link string) {
+	e.t.Helper()
+	assertMissingLink(e.t, e.root, link)
+}
+
+func (e *testEnv) assertMissingLinkFile(link, file string) {
+	e.t.Helper()
+	assertMissingFile(e.t, filepath.Join(e.root, link), file)
+}
+
+func (e *testEnv) assertCommitLog(ref, path, wantSHA, wantSub string, wantChangedFiles []string) {
+	e.t.Helper()
+	assertCommitLog(e.t, e.repo, ref, path, wantSHA, wantSub, wantChangedFiles)
+}
+
+func (e *testEnv) branchCommits(branch string) []repository.CommitInfo {
+	e.t.Helper()
+	commits, err := e.repo.BranchCommits(txtCtx, branch)
+	if err != nil {
+		e.t.Fatalf("unexpected error fetching branch commits: %v", err)
+	}
+	return commits
+}
+
+func (e *testEnv) mergeCommits(mergeCommitHash string) []repository.CommitInfo {
+	e.t.Helper()
+	commits, err := e.repo.MergeCommits(txtCtx, mergeCommitHash)
+	if err != nil {
+		e.t.Fatalf("unexpected error fetching merge commits: %v", err)
+	}
+	return commits
 }
 
 func mustInitRepo(t *testing.T, repo, file, content string) string {
