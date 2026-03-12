@@ -63,75 +63,55 @@ func TestMain(m *testing.M) {
 // Repository Tests
 // ##############################################
 
-func Test_init_root_doesnt_exist(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-
-	t.Run("init upstream and test mirror", func(t *testing.T) {
+func Test_Init_Scenarios(t *testing.T) {
+	t.Run("root doesnt exist", func(t *testing.T) {
+		env := setupEnv(t)
+		defer env.cleanup()
 		env.initUpstream("file", env.name)
 		env.createAndMirror("link", testMainBranch)
 		env.assertFileLinked("link", "file", env.name)
 	})
-}
 
-func Test_init_existing_root(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-	link, ref := "link", testMainBranch
-
-	t.Run("init upstream and run mirror to create mirrors at root", func(t *testing.T) {
+	t.Run("existing root", func(t *testing.T) {
+		env := setupEnv(t)
+		defer env.cleanup()
 		env.initUpstream("file", env.name)
-		env.createAndMirror(link, ref)
+		env.createAndMirror("link", testMainBranch)
+		// re-create mirror repo with same root and worktree with absolute path
+		env.createAndMirror(filepath.Join(env.root, "link"), testMainBranch)
+		env.assertFileLinked("link", "file", env.name)
 	})
 
-	t.Run("re-create mirror repo with same root and worktree with absolute path", func(t *testing.T) {
-		env.createAndMirror(filepath.Join(env.root, link), ref)
-		env.assertFileLinked(link, "file", env.name)
-	})
-}
-
-func Test_init_existing_root_with_diff_repo(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-	link, ref := filepath.Join("sub", "dir", "link"), testMainBranch
-
-	t.Run("init both upstream and mirror repo", func(t *testing.T) {
+	t.Run("existing root with diff repo", func(t *testing.T) {
+		env := setupEnv(t)
+		defer env.cleanup()
 		env.initUpstream("file", env.name)
 		mustInitRepo(t, filepath.Join(env.root, testUpstreamRepo), "file", env.name)
 
-		env.createAndMirror(link, ref)
-		env.assertFileLinked(link, "file", env.name)
-	})
-
-	t.Run("change root so that its under existing repo and create new mirror repo", func(t *testing.T) {
+		env.createAndMirror(filepath.Join("sub", "dir", "link"), testMainBranch)
+		env.assertFileLinked(filepath.Join("sub", "dir", "link"), "file", env.name)
+		// change root so that its under existing repo and create new mirror repo
 		env.root = filepath.Join(env.root, testUpstreamRepo)
-		if err := os.MkdirAll(filepath.Join(env.root, testUpstreamRepo, testUpstreamRepo), defaultDirMode); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		env.createAndMirror(link, ref)
-		env.assertFileLinked(link, "file", env.name)
+		os.MkdirAll(filepath.Join(env.root, testUpstreamRepo, testUpstreamRepo), defaultDirMode)
+		env.createAndMirror("link2", testMainBranch)
+		env.assertFileLinked("link2", "file", env.name)
 	})
-}
 
-func Test_init_existing_root_fails_sanity(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-	link, ref := "link", testMainBranch
+	t.Run("fails sanity tests - recover gracefully", func(t *testing.T) {
+		env := setupEnv(t)
+		defer env.cleanup()
+		env.initUpstream("file", env.name)
+		env.createAndMirror("link", testMainBranch)
 
-	env.initUpstream("file", env.name)
-	env.createAndMirror(link, ref)
-
-	t.Run("modify remote origin URL", func(t *testing.T) {
+		// Modify remote origin URL
 		env.execInRepo("git", "remote", "set-url", "origin", "blah/blah")
-		env.createAndMirror(link, ref)
-		env.assertFileLinked(link, "file", env.name)
-	})
+		env.createAndMirror("link", testMainBranch)
+		env.assertFileLinked("link", "file", env.name)
 
-	t.Run("modify remote origin fetch path refs", func(t *testing.T) {
+		// Modify remote origin fetch path refs
 		env.execInRepo("git", "config", "--add", "remote.origin.fetch", "+refs/heads/master:refs/remotes/origin/master")
-		env.createAndMirror(link, ref)
-		env.assertFileLinked(link, "file", env.name)
+		env.createAndMirror("link", testMainBranch)
+		env.assertFileLinked("link", "file", env.name)
 	})
 }
 
