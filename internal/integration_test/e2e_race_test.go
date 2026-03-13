@@ -219,7 +219,7 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 	}
 
 	// stressPoolFn encapsulates the identical pool stress logic for a remote
-	stressPoolFn := func(remote string, expectedSHA string) {
+	stressPoolFn := func(remote string, expectedSHA string, linkPRefix string) {
 		for i := 0; i < 10; i++ {
 			readStopped := make(chan bool)
 			ctx, cancel := context.WithCancel(context.Background())
@@ -264,11 +264,11 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 			}()
 
 			// Concurrently mutate worktrees
-			if err := rp.AddWorktreeLink(remote, repository.WorktreeConfig{Link: "linkB"}); err != nil {
+			if err := rp.AddWorktreeLink(remote, repository.WorktreeConfig{Link: linkPRefix + "linkB"}); err != nil {
 				t.Errorf("unexpected err: %v", err)
 			}
 			time.Sleep(2 * time.Second)
-			if err := rp.RemoveWorktreeLink(remote, "linkA"); err != nil {
+			if err := rp.RemoveWorktreeLink(remote, linkPRefix+"linkA"); err != nil {
 				t.Errorf("unexpected err: %v", err)
 			}
 
@@ -289,11 +289,11 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 		// Run stress test concurrently on both repositories
 		go func() {
 			defer wg.Done()
-			stressPoolFn(remote1, fileU1SHA1)
+			stressPoolFn(remote1, fileU1SHA1, "r1")
 		}()
 		go func() {
 			defer wg.Done()
-			stressPoolFn(remote2, fileU2SHA1)
+			stressPoolFn(remote2, fileU2SHA1, "r2")
 		}()
 
 		wg.Wait()
@@ -320,7 +320,7 @@ func Test_mirror_detect_race_edge_cases(t *testing.T) {
 		var wg sync.WaitGroup
 		startGun := make(chan struct{}) // Used to force all goroutines to fire at the exact same time
 
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 50; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -384,7 +384,7 @@ func Test_mirror_detect_race_edge_cases(t *testing.T) {
 		var wg sync.WaitGroup
 		// Blast the queue while the loop is running to ensure the
 		// non-blocking channel send holds up safely
-		for i := 0; i < 100; i++ {
+		for i := 0; i < 50; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()

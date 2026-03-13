@@ -491,11 +491,7 @@ func (r *Repository) QueueMirrorRun() {
 // StopLoop stops sync loop gracefully
 func (r *Repository) StopLoop() {
 	r.stopOnce.Do(func() {
-		select {
-		case r.stop <- true:
-		default:
-			// no active listener loop is not started or already stopped
-		}
+		r.stop <- true
 		<-r.stopped
 		deleteMetrics(r.gitURL.Repo)
 		r.log.Info("repository mirror loop stopped")
