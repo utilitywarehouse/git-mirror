@@ -64,11 +64,12 @@ func New(ctx context.Context, conf Config, log *slog.Logger, gitExec string, com
 		// signal repository
 		repoCancel()
 
-		rp.lock.RLock()
-		defer rp.lock.RUnlock()
-
 		for {
 			time.Sleep(time.Second)
+
+			rp.lock.RLock()
+			defer rp.lock.RUnlock()
+
 			// check if any repo mirror is still running
 			var running bool
 			for _, repo := range rp.repos {
@@ -96,13 +97,22 @@ func New(ctx context.Context, conf Config, log *slog.Logger, gitExec string, com
 // AddRepository will add given repository to repoPool.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
 func (rp *RepoPool) AddRepository(repoConf repository.Config) error {
-	remoteURL := giturl.NormaliseURL(repoConf.Remote)
-	if repo, _ := rp.Repository(remoteURL); repo != nil {
-		return ErrExist
+	newRemote := giturl.NormaliseURL(repoConf.Remote)
+	gitNewRemote, err := giturl.Parse(newRemote)
+	if err != nil {
+		return err
 	}
 
 	rp.lock.Lock()
 	defer rp.lock.Unlock()
+
+	// Check if it exists while holding the exclusive Lock
+	for _, repo := range rp.repos {
+		repoURL, _ := giturl.Parse(repo.Remote())
+		if repoURL.Equals(gitNewRemote) {
+			return ErrExist
+		}
+	}
 
 	repo, err := repository.New(repoConf, rp.cmd, rp.commonENVs, rp.log)
 	if err != nil {
@@ -219,21 +229,20 @@ func (rp *RepoPool) AddWorktreeLink(remote string, wt repository.WorktreeConfig)
 	if err != nil {
 		return err
 	}
-	if err := rp.validateLinkPath(repo, wt.Link); err != nil {
-		return err
-	}
 
 	rp.lock.Lock()
 	defer rp.lock.Unlock()
 
+	if err := rp.validateLinkPath(repo, wt.Link); err != nil {
+		return err
+	}
+
 	return repo.AddWorktreeLink(wt)
 }
 
+// make sure write lock is acquired before calling this function
 func (rp *RepoPool) validateLinkPath(repo *repository.Repository, link string) error {
 	newAbsLink := repo.AbsoluteLink(link)
-
-	rp.lock.RLock()
-	defer rp.lock.RUnlock()
 
 	for _, r := range rp.repos {
 		for _, wl := range r.WorktreeLinks() {
@@ -259,28 +268,28 @@ func (rp *RepoPool) RemoveWorktreeLink(remote string, wtLink string) error {
 // RemoveRepository will remove given repository from the repoPool.
 func (rp *RepoPool) RemoveRepository(remote string) error {
 	rp.lock.Lock()
-	defer rp.lock.Unlock()
-
+	var targetRepo *repository.Repository
 	for i, repo := range rp.repos {
 		if repo.Remote() == remote {
-			rp.log.Info("removing repository mirror", "remote", repo.Remote)
-
+			targetRepo = repo
 			rp.repos = slices.Delete(rp.repos, i, i+1)
-
-			repo.StopLoop()
-
-			// remove all published links
-			for _, wt := range repo.WorktreeLinks() {
-				if err := os.Remove(wt.AbsoluteLink()); err != nil {
-					rp.log.Error("unable to remove published link", "err", err)
-				}
-			}
-
-			return os.RemoveAll(repo.Directory())
+			break
 		}
 	}
+	rp.lock.Unlock()
 
-	return ErrNotExist
+	if targetRepo == nil {
+		return ErrNotExist
+	}
+
+	// stop sync outside of the lock
+	rp.log.Info("removing repository mirror", "remote", targetRepo.Remote())
+	targetRepo.StopLoop()
+
+	for _, wt := range targetRepo.WorktreeLinks() {
+		os.Remove(wt.AbsoluteLink())
+	}
+	return os.RemoveAll(targetRepo.Directory())
 }
 
 // Hash is wrapper around repositories hash method

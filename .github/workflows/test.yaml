@@ -2,7 +2,13 @@ name: Test
 
 on:
   push:
+    branches:
+      - "main"
+    tags:
+      - "v*"
   pull_request:
+    branches:
+      - "main"
 
 permissions:
   contents: read
@@ -11,7 +17,7 @@ jobs:
   pkg-test:
     strategy:
       matrix:
-        go-version: [1.25.x]
+        go-version: [1.26.x]
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
@@ -29,5 +35,6 @@ jobs:
       - name: Test with race
         run: |
           go test -v -cover -race -count 1 -timeout 20s --tags deadlock_test -run Test_mirror_detect_race_clone ./internal/integration_test/...
-          go test -v -cover -race -count 1 -timeout 60s --tags deadlock_test -run Test_mirror_detect_race_repo_pool ./internal/integration_test/...
           go test -v -cover -race -count 1 -timeout 240s --tags deadlock_test -run Test_mirror_detect_race_slow_fetch ./internal/integration_test/...
+          go test -v -cover -race -count 1 -timeout 60s --tags deadlock_test -run Test_mirror_detect_race_repo_pool ./internal/integration_test/...
+          go test -v -cover -race -count 1 -timeout 20s --tags deadlock_test -run Test_mirror_detect_race_edge_cases ./internal/integration_test/...

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/utilitywarehouse/git-mirror/giturl"
@@ -65,6 +66,7 @@ type Repository struct {
 	workTreeLinks map[string]*WorkTreeLink // list of worktrees which will be maintained
 	stop, stopped chan bool                // chans to stop mirror loops
 	queueMirror   chan struct{}            // chan to queue mirror run
+	stopOnce      sync.Once
 	log           *slog.Logger
 
 	githubAppToken          string
@@ -297,7 +299,7 @@ func (r *Repository) ListCommitsWithChangedFiles(ctx context.Context, ref1, ref2
 	}
 	defer r.lock.RUnlock()
 
-	args := []string{"log", `--name-only`, `--pretty=format:%H`, ref1 + ".." + ref2}
+	args := []string{"log", `--name-only`, `--pretty=format:COMMIT:%H`, ref1 + ".." + ref2}
 	msg, err := r.git(ctx, nil, "", args...)
 	if err != nil {
 		return nil, err
@@ -308,9 +310,9 @@ func (r *Repository) ListCommitsWithChangedFiles(ctx context.Context, ref1, ref2
 // ParseCommitWithChangedFilesList will parse following output of 'show/log'
 // command with `--name-only`, `--pretty=format:%H` flags
 //
-//	72ea9c9de6963e97ac472d9ea996e384c6923cca
+//	COMMIT:72ea9c9de6963e97ac472d9ea996e384c6923cca
 //
-//	80e11d114dd3aa135c18573402a8e688599c69e0
+//	COMMIT:80e11d114dd3aa135c18573402a8e688599c69e0
 //	one/readme.yaml
 //	one/hello.tf
 //	two/readme.yaml
@@ -323,8 +325,9 @@ func ParseCommitWithChangedFilesList(output string) []CommitInfo {
 		if line == "" {
 			continue
 		}
-		if IsFullCommitHash(line) {
-			Commits = append(Commits, CommitInfo{Hash: line})
+		if strings.HasPrefix(line, "COMMIT:") {
+			hash := strings.TrimPrefix(line, "COMMIT:")
+			Commits = append(Commits, CommitInfo{Hash: hash})
 			commitCount += 1
 			continue
 		}
@@ -487,10 +490,12 @@ func (r *Repository) QueueMirrorRun() {
 
 // StopLoop stops sync loop gracefully
 func (r *Repository) StopLoop() {
-	r.stop <- true
-	<-r.stopped
-	deleteMetrics(r.gitURL.Repo)
-	r.log.Info("repository mirror loop stopped")
+	r.stopOnce.Do(func() {
+		r.stop <- true
+		<-r.stopped
+		deleteMetrics(r.gitURL.Repo)
+		r.log.Info("repository mirror loop stopped")
+	})
 }
 
 // Mirror will run mirror loop of the repository
@@ -919,10 +924,14 @@ func (r *Repository) cleanup(ctx context.Context) bool {
 
 	// Run GC if needed.
 	if r.gitGC != GCOff {
-		args := []string{"gc"}
+		// Always use --force to bypass stale gc.pid files left by OOMKills/crashes
+		// This is safe because r.lock.Lock() already guarantees no concurrent
+		// Mirror loops run for the same repository
+		args := []string{"gc", "--force"}
 		switch r.gitGC {
 		case GCAuto:
-			args = append(args, "--auto")
+			// --no-detach prevents git from backgrounding itself, which causes invisible memory spikes
+			args = append(args, "--auto", "--no-detach")
 		case GCAlways:
 			// no extra flags
 		case GCAggressive:
@@ -951,7 +960,7 @@ func (r *Repository) removeStaleWorktreeLinks() bool {
 	onDiskTrackedLinks := make(map[string]string)
 	dirents, err := os.ReadDir(r.worktreesRoot())
 	if err != nil {
-		if strings.Contains(err.Error(), "no such file or directory") {
+		if errors.Is(err, fs.ErrNotExist) {
 			return success
 		}
 		r.log.Error("unable to read link worktree root dir", "err", err)
@@ -1008,13 +1017,23 @@ func (r *Repository) removeStaleWorktrees() (int, error) {
 	var currentWTDirs []string
 
 	for _, wt := range r.workTreeLinks {
+		// 1. Protect what the symlink currently points to (if anything)
 		t, err := wt.currentWorktree()
 		if err != nil {
+			// Log the error but continue so we still protect wt.dir
 			r.log.Error("unable to read worktree link", "worktree", wt.link, "err", err)
 			continue
 		}
 		if t != "" {
 			_, wtDir := utils.SplitAbs(t)
+			currentWTDirs = append(currentWTDirs, wtDir)
+			currentWTDirs = append(currentWTDirs, wtDir+tracerSuffix)
+		}
+		// it is possible current symlink is not pointing to wt.dir since
+		// ensureWorktreeLink failed in that case we need to protect the newly
+		// checked-out internal valid directory
+		if wt.dir != "" {
+			_, wtDir := utils.SplitAbs(wt.dir)
 			currentWTDirs = append(currentWTDirs, wtDir)
 			currentWTDirs = append(currentWTDirs, wtDir+tracerSuffix)
 		}
