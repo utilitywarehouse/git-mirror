@@ -928,10 +928,14 @@ func (r *Repository) cleanup(ctx context.Context) bool {
 
 	// Run GC if needed.
 	if r.gitGC != GCOff {
-		args := []string{"gc"}
+		// Always use --force to bypass stale gc.pid files left by OOMKills/crashes
+		// This is safe because r.lock.Lock() already guarantees no concurrent
+		// Mirror loops run for the same repository
+		args := []string{"gc", "--force"}
 		switch r.gitGC {
 		case GCAuto:
-			args = append(args, "--auto")
+			// --no-detach prevents git from backgrounding itself, which causes invisible memory spikes
+			args = append(args, "--auto", "--no-detach")
 		case GCAlways:
 			// no extra flags
 		case GCAggressive:

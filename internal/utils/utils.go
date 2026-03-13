@@ -82,7 +82,12 @@ func RunCommand(ctx context.Context, log *slog.Logger, envs []string, cwd string
 	log.Log(ctx, -8, "running command", "cwd", cwd, "cmd", cmdStr)
 
 	cmd := exec.CommandContext(ctx, command, args...)
-	// force kill git & child process 5 seconds after sending it sigterm (when ctx is cancelled/timed out)
+
+	// Gracefully send SIGINT when the context cancels/times out so Git can delete its lock files.
+	// WaitDelay forces a SIGKILL if the process hasn't exited 5 seconds after the SIGINT.
+	cmd.Cancel = func() error {
+		return cmd.Process.Signal(os.Interrupt)
+	}
 	cmd.WaitDelay = 5 * time.Second
 	if cwd != "" {
 		cmd.Dir = cwd
