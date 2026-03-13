@@ -505,6 +505,7 @@ func Test_mirror_bad_ref(t *testing.T) {
 	defer env.cleanup()
 
 	t.Run("init upstream without non-existent branch", func(t *testing.T) {
+		env.t = t
 		env.initUpstream("file", env.name)
 
 		rc := repository.Config{
@@ -537,6 +538,7 @@ func Test_mirror_with_pathspec(t *testing.T) {
 	var firstSHA string
 
 	t.Run("init upstream without other dirs", func(t *testing.T) {
+		env.t = t
 		firstSHA = env.initUpstream("file", env.name+"-main-1")
 		env.createAndMirror(link1, ref1)
 		env.mirror()
@@ -547,6 +549,7 @@ func Test_mirror_with_pathspec(t *testing.T) {
 	})
 
 	t.Run("forward HEAD and create dir2 to test link2", func(t *testing.T) {
+		env.t = t
 		env.commit("file", env.name+"-main-2")
 		env.commit(filepath.Join("dir2", "file"), env.name+"-main-2")
 
@@ -568,6 +571,7 @@ func Test_mirror_with_pathspec(t *testing.T) {
 	})
 
 	t.Run("forward HEAD and create dir3 to test link3", func(t *testing.T) {
+		env.t = t
 		env.commit("file", env.name+"-main-3")
 		env.commit(filepath.Join("dir2", "file"), env.name+"-main-3")
 		env.commit(filepath.Join("dir3", "file"), env.name+"-main-3")
@@ -595,6 +599,7 @@ func Test_mirror_with_pathspec(t *testing.T) {
 	})
 
 	t.Run("move HEAD backward by 3 commit to original state", func(t *testing.T) {
+		env.t = t
 		env.exec("git", "reset", "-q", "--hard", firstSHA)
 
 		env.repo.RemoveWorktreeLink(link2)
@@ -635,6 +640,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 	env.assertFileLinked(link2, "file", env.name+"-other-1")
 
 	t.Run("trigger restart by creating new repo with switched links", func(t *testing.T) {
+		env.t = t
 		env.createAndMirror(link1, ref2)
 		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref1, Pathspecs: []string{}})
 		env.mirror()
@@ -644,6 +650,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 	})
 
 	t.Run("forward both branches", func(t *testing.T) {
+		env.t = t
 		env.commit("file", env.name+"-main-2")
 		env.exec("git", "checkout", "-q", ref2)
 		env.commit("file", env.name+"-other-2")
@@ -655,6 +662,7 @@ func Test_mirror_switch_branch_after_restart(t *testing.T) {
 	})
 
 	t.Run("move both branches backward", func(t *testing.T) {
+		env.t = t
 		env.exec("git", "reset", "-q", "--hard", "HEAD^")
 		env.exec("git", "checkout", "-q", ref2)
 		env.exec("git", "reset", "-q", "--hard", "HEAD^")
@@ -672,12 +680,14 @@ func Test_mirror_with_crash(t *testing.T) {
 	link1, ref1 := "link1", testMainBranch
 
 	t.Run("init upstream", func(t *testing.T) {
+		env.t = t
 		env.initUpstream("file", env.name+"- 1")
 		env.createAndMirror(link1, ref1)
 		env.assertFileLinked(link1, "file", env.name+"- 1")
 	})
 
 	t.Run("forward HEAD and delete link 1 symlink", func(t *testing.T) {
+		env.t = t
 		if err := os.Remove(filepath.Join(env.root, link1)); err != nil {
 			t.Fatalf("unexpected error:%s", err)
 		}
@@ -687,6 +697,7 @@ func Test_mirror_with_crash(t *testing.T) {
 	})
 
 	t.Run("forward HEAD and delete actual worktree", func(t *testing.T) {
+		env.t = t
 		wtPath, err := utils.ReadAbsLink(env.repo.WorktreeLinks()[link1].AbsoluteLink())
 		if err != nil {
 			t.Fatalf("unexpected error:%s", err)
@@ -701,6 +712,7 @@ func Test_mirror_with_crash(t *testing.T) {
 	})
 
 	t.Run("move HEAD backward and delete root repository", func(t *testing.T) {
+		env.t = t
 		if err := os.RemoveAll(env.root); err != nil {
 			t.Fatalf("unexpected error:%s", err)
 		}
@@ -717,6 +729,7 @@ func Test_mirror_loop(t *testing.T) {
 	ref1, ref2 := testMainBranch, "HEAD"
 
 	t.Run("init upstream and start mirror loop", func(t *testing.T) {
+		env.t = t
 		env.initUpstream("file", env.name+"-1")
 		env.createAndMirror(link1, ref1)
 		env.repo.AddWorktreeLink(repository.WorktreeConfig{Link: link2, Ref: ref2, Pathspecs: []string{}})
@@ -733,6 +746,7 @@ func Test_mirror_loop(t *testing.T) {
 	})
 
 	t.Run("forward HEAD", func(t *testing.T) {
+		env.t = t
 		env.commit("file", env.name+"-2")
 		time.Sleep(testInterval * 2)
 		env.assertFileLinked(link1, "file", env.name+"-2")
@@ -740,6 +754,7 @@ func Test_mirror_loop(t *testing.T) {
 	})
 
 	t.Run("move HEAD backward", func(t *testing.T) {
+		env.t = t
 		env.exec("git", "reset", "-q", "--hard", "HEAD^")
 		time.Sleep(testInterval * 2)
 		env.assertFileLinked(link1, "file", env.name+"-1")
