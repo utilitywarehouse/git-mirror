@@ -173,8 +173,8 @@ func (conf *Config) ValidateAndApplyDefaults() error {
 
 	conf.applyDefaults()
 
-	for _, repo := range conf.Repositories {
-		if err := repo.PopulateEmptyLinkPaths(); err != nil {
+	for i := range conf.Repositories {
+		if err := conf.Repositories[i].PopulateEmptyLinkPaths(); err != nil {
 			return err
 		}
 	}
