@@ -183,14 +183,14 @@ func TestParseCommitWithChangedFilesList(t *testing.T) {
 		},
 		{
 			"only_commit",
-			`267fc66a734de9e4de57d9d20c83566a69cd703c
+			`COMMIT:267fc66a734de9e4de57d9d20c83566a69cd703c
 			`,
 			[]CommitInfo{{Hash: "267fc66a734de9e4de57d9d20c83566a69cd703c"}},
 		},
 		{
 			"no_changed_files",
 			`
-267fc66a734de9e4de57d9d20c83566a69cd703c
+COMMIT:267fc66a734de9e4de57d9d20c83566a69cd703c
 
 
 			`,
@@ -198,14 +198,14 @@ func TestParseCommitWithChangedFilesList(t *testing.T) {
 		},
 		{
 			"multiple_commits",
-			`267fc66a734de9e4de57d9d20c83566a69cd703c
-1f68b80bc259e067fdb3dc4bb82cdbd43645e392
+			`COMMIT:267fc66a734de9e4de57d9d20c83566a69cd703c
+COMMIT:1f68b80bc259e067fdb3dc4bb82cdbd43645e392
 one/hello.tf
 
-72ea9c9de6963e97ac472d9ea996e384c6923cca
+COMMIT:72ea9c9de6963e97ac472d9ea996e384c6923cca
 readme
 
-80e11d114dd3aa135c18573402a8e688599c69e0
+COMMIT:80e11d114dd3aa135c18573402a8e688599c69e0
 one/readme
 one/hello.tf
 two/readme
