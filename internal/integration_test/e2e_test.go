@@ -189,6 +189,273 @@ func Test_Mirror_Lifecycle_Combined(t *testing.T) {
 	})
 }
 
+// Test_Clone_Operations builds a highly complex repository history once,
+// mirrors it once, and then asserts all Clone permutations
+func Test_Clone_Operations(t *testing.T) {
+	env := setupEnv(t)
+	defer env.cleanup()
+
+	tempClone := mustTmpDir(t)
+	defer os.RemoveAll(tempClone)
+
+	otherBranch := "other-branch"
+	tag := "e2e-tag"
+
+	var dir1SHA, dir2SHA3, fileOtherSHA3, fileOtherSHA4, mergeCommit3 string
+
+	t.Run("build complex history and mirror", func(t *testing.T) {
+		// 1. Initial State
+		env.initUpstream("file", env.name+"-main-1")
+		dir1SHA = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
+		env.commit("file", env.name+"-main-2")
+
+		// 2. Other Branch updates and tagging
+		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-3")
+		env.checkout(otherBranch, true)
+		dir2SHA3 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-3")
+		fileOtherSHA3 = env.commit("file", env.name+"-other-3")
+		env.exec("git", "tag", "-af", tag, "-m", "tagging")
+
+		// 3. Back to main, Merge 1 (--no-ff)
+		env.checkout(testMainBranch, false)
+		env.commit("file2", env.name+"-main-3")
+		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merge 1")
+
+		// 4. Update other branch further
+		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-4")
+		env.checkout(otherBranch, false)
+		env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-4")
+		fileOtherSHA4 = env.commit("file", env.name+"-other-4")
+
+		// 5. Back to main, Merge 2 (--no-ff)
+		env.checkout(testMainBranch, false)
+		env.commit("file2", env.name+"-main-4")
+		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merge 2")
+
+		// 6. Squash merge
+		otherBranch2 := otherBranch + "v2"
+		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-5")
+		env.checkout(otherBranch2, true)
+		env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-5")
+		env.commit("file", env.name+"-other-5")
+		env.checkout(testMainBranch, false)
+		env.commit("file2", env.name+"-main-5")
+		env.exec("git", "merge", "--squash", otherBranch2)
+		env.exec("git", "commit", "-m", "Squash merge")
+		mergeCommit3 = env.exec("git", "rev-list", "-n1", "HEAD")
+
+		// Mirror the entire tree once
+		env.createAndMirror("", "")
+	})
+
+	t.Run("clone checks", func(t *testing.T) {
+		cases := []struct {
+			name        string
+			ref         string
+			pathspecs   []string
+			rmGitDir    bool
+			wantSHA     string
+			wantFiles   map[string]string
+			wantMissing []string
+		}{
+			{"main", testMainBranch, nil, false, mergeCommit3, map[string]string{"file2": env.name + "-main-5", filepath.Join("dir1", "file"): env.name + "-dir1-main-5"}, nil},
+			{"HEAD", "HEAD", nil, false, mergeCommit3, map[string]string{"file2": env.name + "-main-5"}, nil},
+			{"HEAD pathspec", "HEAD", []string{"dir1"}, false, mergeCommit3, map[string]string{filepath.Join("dir1", "file"): env.name + "-dir1-main-5"}, []string{"file", "dir2"}},
+			{"other branch", otherBranch, nil, false, fileOtherSHA4, map[string]string{"file": env.name + "-other-4", filepath.Join("dir2", "file"): env.name + "-dir2-other-4"}, nil},
+			{"other branch pathspec", otherBranch, []string{"dir2"}, false, fileOtherSHA4, map[string]string{filepath.Join("dir2", "file"): env.name + "-dir2-other-4"}, []string{"file", "dir1"}},
+			{"tag", tag, nil, false, fileOtherSHA3, map[string]string{"file": env.name + "-other-3", filepath.Join("dir2", "file"): env.name + "-dir2-other-3"}, nil},
+			{"tag pathspec", tag, []string{"dir2"}, false, fileOtherSHA3, map[string]string{filepath.Join("dir2", "file"): env.name + "-dir2-other-3"}, []string{"file", "dir1"}},
+			{"sha pathspec", dir2SHA3, []string{"dir2"}, false, dir2SHA3, map[string]string{filepath.Join("dir2", "file"): env.name + "-dir2-other-3"}, []string{"file", "dir1"}},
+			{"rmGitDir", testMainBranch, nil, true, mergeCommit3, map[string]string{"file2": env.name + "-main-5"}, []string{".git"}},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				os.RemoveAll(tempClone)
+				os.MkdirAll(tempClone, defaultDirMode)
+				cloneSHA, err := env.repo.Clone(txtCtx, tempClone, tc.ref, tc.pathspecs, tc.rmGitDir)
+				if err != nil {
+					t.Fatalf("clone failed for ref %s: %v", tc.ref, err)
+				}
+				if cloneSHA != tc.wantSHA {
+					t.Errorf("clone SHA mismatch for ref %s: want %s got %s", tc.ref, tc.wantSHA, cloneSHA)
+				}
+				assertDirFiles(t, tempClone, tc.wantFiles, tc.wantMissing)
+			})
+		}
+	})
+
+	t.Run("rollback and clone deleted branch", func(t *testing.T) {
+		env.exec("git", "branch", "-D", otherBranch)
+		env.exec("git", "reset", "-q", "--hard", dir1SHA)
+		env.mirror()
+
+		if _, err := env.repo.Clone(txtCtx, tempClone, otherBranch, nil, true); err == nil {
+			t.Errorf("expected clone to fail on deleted branch")
+		}
+	})
+}
+
+// Test_Commit_Log_Diff_Operations interleaves logs and diff assertions
+// while progressively building a complex Git history to ensure `HEAD..branch`
+// evaluations occur before branches are merged.
+func Test_Commit_Log_Diff_Operations(t *testing.T) {
+	env := setupEnv(t)
+	defer env.cleanup()
+
+	otherBranch := "other-branch"
+	tag := "e2e-tag"
+
+	var fileSHA1, fileSHA2, dir1SHA2, dir1SHA3, dir2SHA3, fileOtherSHA3, fileSHA3 string
+	var mergeCommit1, dir1SHA4, dir2SHA4, fileOtherSHA4, fileSHA4 string
+	var mergeCommit2, dir1SHA5, mergeCommit3 string
+
+	t.Run("phase 1: branch divergence", func(t *testing.T) {
+		env.t = t
+		fileSHA1 = env.initUpstream("file", env.name+"-main-1")
+		dir1SHA2 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
+		fileSHA2 = env.commit("file", env.name+"-main-2")
+
+		dir1SHA3 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-3")
+		env.checkout(otherBranch, true)
+		dir2SHA3 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-3")
+		fileOtherSHA3 = env.commit("file", env.name+"-other-3")
+		env.exec("git", "tag", "-af", tag, "-m", "tagging")
+
+		env.checkout(testMainBranch, false)
+		fileSHA3 = env.commit("file2", env.name+"-main-3")
+
+		env.createAndMirror("", "")
+
+		env.assertLogs([]commitLog{
+			{"HEAD", "", fileSHA3, env.name + "-main-3", []string{"file2"}},
+			{testMainBranch, "dir1", dir1SHA3, env.name + "-dir1-main-3", []string{filepath.Join("dir1", "file")}},
+			{otherBranch, "", fileOtherSHA3, env.name + "-other-3", []string{"file"}},
+			{otherBranch, "dir2", dir2SHA3, env.name + "-dir2-other-3", []string{filepath.Join("dir2", "file")}},
+		})
+
+		env.assertBranchDiff(otherBranch, []repository.CommitInfo{
+			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		})
+	})
+
+	t.Run("phase 2: merge 1", func(t *testing.T) {
+		env.t = t
+		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merge 1")
+		mergeCommit1 = env.exec("git", "rev-list", "-n1", "HEAD")
+		env.mirror()
+
+		env.assertLogs([]commitLog{
+			{"HEAD", "", mergeCommit1, "Merge 1", []string{}},
+			{testMainBranch, "dir2", dir2SHA3, env.name + "-dir2-other-3", []string{filepath.Join("dir2", "file")}},
+		})
+
+		env.assertMergeDiff(mergeCommit1, []repository.CommitInfo{
+			{Hash: mergeCommit1},
+			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		})
+	})
+
+	t.Run("phase 3: branch divergence 2", func(t *testing.T) {
+		env.t = t
+		dir1SHA4 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-4")
+
+		env.checkout(otherBranch, false)
+		dir2SHA4 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-4")
+		fileOtherSHA4 = env.commit("file", env.name+"-other-4")
+
+		env.checkout(testMainBranch, false)
+		fileSHA4 = env.commit("file2", env.name+"-main-4") // Modifying file2 prevents merge conflict!
+
+		env.mirror()
+
+		env.assertLogs([]commitLog{
+			{"HEAD", "", fileSHA4, env.name + "-main-4", []string{"file2"}},
+			{testMainBranch, "dir1", dir1SHA4, env.name + "-dir1-main-4", []string{filepath.Join("dir1", "file")}},
+			{otherBranch, "", fileOtherSHA4, env.name + "-other-4", []string{"file"}},
+		})
+
+		// Diff evaluates new commits since the previous merge
+		env.assertBranchDiff(otherBranch, []repository.CommitInfo{
+			{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		})
+	})
+
+	t.Run("phase 4: merge 2", func(t *testing.T) {
+		env.t = t
+		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merge 2")
+		mergeCommit2 = env.exec("git", "rev-list", "-n1", "HEAD")
+		env.mirror()
+
+		env.assertLogs([]commitLog{
+			{"HEAD", "", mergeCommit2, "Merge 2", []string{}},
+			{testMainBranch, "dir2", dir2SHA4, env.name + "-dir2-other-4", []string{filepath.Join("dir2", "file")}},
+		})
+
+		env.assertMergeDiff(mergeCommit2, []repository.CommitInfo{
+			{Hash: mergeCommit2},
+			{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
+			{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
+		})
+	})
+
+	t.Run("phase 5: squash merge", func(t *testing.T) {
+		env.t = t
+		otherBranch2 := otherBranch + "v2"
+		dir1SHA5 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-5")
+
+		env.checkout(otherBranch2, true)
+		env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-5")
+		env.commit("file", env.name+"-other-5")
+
+		env.checkout(testMainBranch, false)
+		env.commit("file2", env.name+"-main-5")
+
+		env.exec("git", "merge", "--squash", otherBranch2)
+		env.exec("git", "commit", "-m", "Squash merge v1")
+		mergeCommit3 = env.exec("git", "rev-list", "-n1", "HEAD")
+		env.mirror()
+
+		env.assertLogs([]commitLog{
+			{"HEAD", "", mergeCommit3, "Squash merge v1", []string{}},
+			{"HEAD", "dir1", dir1SHA5, env.name + "-dir1-main-5", []string{filepath.Join("dir1", "file")}},
+		})
+
+		env.assertMergeDiff(mergeCommit3, []repository.CommitInfo{
+			{Hash: mergeCommit3, ChangedFiles: []string{filepath.Join("dir2", "file"), "file"}},
+		})
+	})
+
+	t.Run("historical log checks", func(t *testing.T) {
+		env.t = t
+		// Ensure we can still query historical hashes properly long after they are buried
+		env.assertLogs([]commitLog{
+			{fileSHA2, "dir1", dir1SHA2, env.name + "-dir1-main-2", []string{filepath.Join("dir1", "file")}},
+			{mergeCommit1, "dir1", dir1SHA3, env.name + "-dir1-main-3", []string{filepath.Join("dir1", "file")}},
+			{mergeCommit2, "dir1", dir1SHA4, env.name + "-dir1-main-4", []string{filepath.Join("dir1", "file")}},
+		})
+	})
+
+	t.Run("phase 6: rollback and test deleted branch", func(t *testing.T) {
+		env.t = t
+		env.exec("git", "branch", "-D", otherBranch)
+		env.exec("git", "reset", "-q", "--hard", fileSHA1)
+		env.mirror()
+
+		env.assertLogs([]commitLog{
+			{"HEAD", "", fileSHA1, env.name + "-main-1", []string{"file"}},
+			{"HEAD", "dir1", "", "", nil},
+		})
+
+		if _, err := env.repo.Hash(txtCtx, otherBranch, ""); err == nil {
+			t.Errorf("expected hash to fail on deleted branch")
+		}
+	})
+}
+
 func Test_mirror_bad_ref(t *testing.T) {
 	env := setupEnv(t)
 	defer env.cleanup()
@@ -396,404 +663,6 @@ func Test_mirror_with_crash(t *testing.T) {
 		env.exec("git", "reset", "-q", "--hard", "HEAD^")
 		env.mirror()
 		env.assertFileLinked(link1, "file", env.name+"- 2")
-	})
-}
-
-func Test_commit_hash_msg(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-
-	otherBranch := "other-branch"
-	var fileSHA1, fileSHA2, dir1SHA2, fileSHA3, dir1SHA3, dir2SHA3, fileOtherSHA3 string
-	var dir1SHA4, dir2SHA4, fileOtherSHA4, fileSHA4 string
-
-	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
-		fileSHA1 = env.initUpstream("file", env.name+"-main-1")
-		env.createAndMirror("", "")
-
-		env.assertCommitLog("HEAD", "", fileSHA1, env.name+"-main-1", []string{"file"})
-		env.assertCommitLog(testMainBranch, "", fileSHA1, env.name+"-main-1", []string{"file"})
-	})
-
-	t.Run("forward HEAD and create dir1 on HEAD", func(t *testing.T) {
-		dir1SHA2 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
-		fileSHA2 = env.commit("file", env.name+"-main-2")
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", fileSHA2, env.name+"-main-2", []string{"file"})
-		env.assertCommitLog(testMainBranch, "", fileSHA2, env.name+"-main-2", []string{"file"})
-		env.assertCommitLog("HEAD", "dir1", dir1SHA2, env.name+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
-		env.assertCommitLog(testMainBranch, "dir1", dir1SHA2, env.name+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
-	})
-
-	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
-		dir1SHA3 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-3")
-
-		env.exec("git", "checkout", "-q", "-b", otherBranch)
-		dir2SHA3 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-3")
-		fileOtherSHA3 = env.commit("file", env.name+"-other-3")
-
-		env.exec("git", "checkout", "-q", testMainBranch)
-		fileSHA3 = env.commit("file", env.name+"-main-3")
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", fileSHA3, env.name+"-main-3", []string{"file"})
-		env.assertCommitLog(testMainBranch, "dir1", dir1SHA3, env.name+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-		env.assertCommitLog(testMainBranch, "dir2", "", "", nil)
-
-		env.assertCommitLog(otherBranch, "", fileOtherSHA3, env.name+"-other-3", []string{"file"})
-		env.assertCommitLog(otherBranch, "dir2", dir2SHA3, env.name+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
-
-		wantDiff := []repository.CommitInfo{
-			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-		}
-		if diff := cmp.Diff(wantDiff, env.branchCommits(otherBranch)); diff != "" {
-			t.Errorf("BranchCommits mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("forward HEAD and other-branch", func(t *testing.T) {
-		dir1SHA4 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-4")
-		env.exec("git", "checkout", "-q", otherBranch)
-		dir2SHA4 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-4")
-		fileOtherSHA4 = env.commit("file", env.name+"-other-4")
-		env.exec("git", "checkout", "-q", testMainBranch)
-		fileSHA4 = env.commit("file", env.name+"-main-4")
-
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", fileSHA4, env.name+"-main-4", []string{"file"})
-		env.assertCommitLog(testMainBranch, "dir1", dir1SHA4, env.name+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
-		env.assertCommitLog(otherBranch, "", fileOtherSHA4, env.name+"-other-4", []string{"file"})
-		env.assertCommitLog(otherBranch, "dir2", dir2SHA4, env.name+"-dir2-other-4", []string{filepath.Join("dir2", "file")})
-
-		wantDiff := []repository.CommitInfo{
-			{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
-			{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-		}
-		if diff := cmp.Diff(wantDiff, env.branchCommits(otherBranch)); diff != "" {
-			t.Errorf("BranchCommits mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("move HEAD and other-branch backward to test3", func(t *testing.T) {
-		env.exec("git", "checkout", "-q", otherBranch)
-		env.exec("git", "reset", "-q", "--hard", fileOtherSHA3)
-		env.exec("git", "checkout", "-q", testMainBranch)
-		env.exec("git", "reset", "-q", "--hard", fileSHA3)
-
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", fileSHA3, env.name+"-main-3", []string{"file"})
-		env.assertCommitLog(testMainBranch, "dir1", dir1SHA3, env.name+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-		env.assertCommitLog(otherBranch, "", fileOtherSHA3, env.name+"-other-3", []string{"file"})
-
-		wantDiff := []repository.CommitInfo{
-			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-		}
-		if diff := cmp.Diff(wantDiff, env.branchCommits(otherBranch)); diff != "" {
-			t.Errorf("BranchCommits mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("move HEAD backward to test1 and delete other-branch", func(t *testing.T) {
-		env.exec("git", "branch", "-D", otherBranch)
-		env.exec("git", "reset", "-q", "--hard", fileSHA1)
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", fileSHA1, env.name+"-main-1", []string{"file"})
-		env.assertCommitLog("HEAD", "dir1", "", "", nil)
-
-		if _, err := env.repo.Hash(txtCtx, otherBranch, ""); err == nil {
-			t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
-		}
-	})
-}
-
-func Test_commit_hash_files_merge(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-
-	otherBranch := "other-branch"
-	var fileSHA2, dir1SHA2, dir1SHA3, dir2SHA3, fileOtherSHA3 string
-	var mergeCommit1, mergeCommit2, mergeCommit3 string
-
-	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
-		env.initUpstream("file", env.name+"-main-1")
-		env.createAndMirror("", "")
-	})
-
-	t.Run("forward HEAD and create dir1 on HEAD", func(t *testing.T) {
-		dir1SHA2 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
-		fileSHA2 = env.commit("file", env.name+"-main-2")
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", fileSHA2, env.name+"-main-2", []string{"file"})
-		env.assertCommitLog("HEAD", "dir1", dir1SHA2, env.name+"-dir1-main-2", []string{filepath.Join("dir1", "file")})
-	})
-
-	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
-		dir1SHA3 = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-3")
-
-		env.exec("git", "checkout", "-q", "-b", otherBranch)
-		dir2SHA3 = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-3")
-		fileOtherSHA3 = env.commit("file", env.name+"-other-3")
-
-		env.exec("git", "checkout", "-q", testMainBranch)
-		env.commit("file2", env.name+"-main-3")
-
-		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v1")
-		mergeCommit1 = env.exec("git", "rev-list", "-n1", "HEAD")
-
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", mergeCommit1, "Merging otherBranch with no-ff v1", []string{})
-		env.assertCommitLog("HEAD", "dir1", dir1SHA3, env.name+"-dir1-main-3", []string{filepath.Join("dir1", "file")})
-		env.assertCommitLog(testMainBranch, "dir2", dir2SHA3, env.name+"-dir2-other-3", []string{filepath.Join("dir2", "file")})
-
-		wantDiff := []repository.CommitInfo{
-			{Hash: mergeCommit1},
-			{Hash: fileOtherSHA3, ChangedFiles: []string{"file"}},
-			{Hash: dir2SHA3, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-		}
-		if diff := cmp.Diff(wantDiff, env.mergeCommits(mergeCommit1)); diff != "" {
-			t.Errorf("MergeCommits mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("add more commits to same other-branch and merge", func(t *testing.T) {
-		dir1SHA4 := env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-4")
-
-		env.exec("git", "checkout", "-q", otherBranch)
-		dir2SHA4 := env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-4")
-		fileOtherSHA4 := env.commit("file", env.name+"-other-4")
-
-		env.exec("git", "checkout", "-q", testMainBranch)
-		env.commit("file2", env.name+"-main-4")
-
-		env.exec("git", "merge", "--no-ff", otherBranch, "-m", "Merging otherBranch with no-ff v2")
-		mergeCommit2 = env.exec("git", "rev-list", "-n1", "HEAD")
-
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", mergeCommit2, "Merging otherBranch with no-ff v2", []string{})
-		env.assertCommitLog(testMainBranch, "dir1", dir1SHA4, env.name+"-dir1-main-4", []string{filepath.Join("dir1", "file")})
-
-		wantDiff := []repository.CommitInfo{
-			{Hash: mergeCommit2},
-			{Hash: fileOtherSHA4, ChangedFiles: []string{"file"}},
-			{Hash: dir2SHA4, ChangedFiles: []string{filepath.Join("dir2", "file")}},
-		}
-		if diff := cmp.Diff(wantDiff, env.mergeCommits(mergeCommit2)); diff != "" {
-			t.Errorf("MergeCommits mismatch (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("create new branch and then do squash merge", func(t *testing.T) {
-		otherBranch = otherBranch + "v2"
-		dir1SHA5 := env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-5")
-
-		env.exec("git", "checkout", "-q", "-b", otherBranch)
-		env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-5")
-		env.commit("file", env.name+"-other-5")
-
-		env.exec("git", "checkout", "-q", testMainBranch)
-		env.commit("file2", env.name+"-main-5")
-
-		env.exec("git", "merge", "--squash", otherBranch)
-		env.exec("git", "commit", "-m", "Merging otherBranch with squash v1")
-		mergeCommit3 = env.exec("git", "rev-list", "-n1", "HEAD")
-
-		env.mirror()
-
-		env.assertCommitLog("HEAD", "", mergeCommit3, "Merging otherBranch with squash v1", []string{})
-		env.assertCommitLog("HEAD", "dir1", dir1SHA5, env.name+"-dir1-main-5", []string{filepath.Join("dir1", "file")})
-
-		wantDiff := []repository.CommitInfo{
-			{Hash: mergeCommit3, ChangedFiles: []string{filepath.Join("dir2", "file"), "file"}},
-		}
-		if diff := cmp.Diff(wantDiff, env.mergeCommits(mergeCommit3)); diff != "" {
-			t.Errorf("MergeCommits mismatch (-want +got):\n%s", diff)
-		}
-	})
-}
-
-func Test_clone_branch(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-
-	tempClone := mustTmpDir(t)
-	defer os.RemoveAll(tempClone)
-
-	otherBranch := "other-branch"
-	var remoteSHA, remoteSHA2, remoteOtherSHA string
-
-	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
-		env.initUpstream("file", env.name+"-main-1")
-		remoteSHA = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-1")
-		env.createAndMirror("", "")
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, testMainBranch, nil, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
-	})
-
-	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
-		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
-		env.exec("git", "checkout", "-q", "-b", otherBranch)
-		env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-2")
-		remoteOtherSHA = env.commit("file", env.name+"-other-2")
-		env.exec("git", "checkout", "-q", testMainBranch)
-		remoteSHA2 = env.commit("file", env.name+"-main-2")
-		env.mirror()
-
-		// Clone other branch
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, otherBranch, nil, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteOtherSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-other-2")
-
-		// Clone other branch with dir2 pathspec
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, otherBranch, []string{"dir2"}, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteOtherSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
-		}
-		assertMissingFile(t, tempClone, "file")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), env.name+"-dir2-other-2")
-
-		// Clone main with dir1
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, testMainBranch, []string{"dir1"}, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteSHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA2)
-		}
-		assertMissingFile(t, tempClone, "file")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-2")
-	})
-
-	t.Run("move HEAD backward to init", func(t *testing.T) {
-		env.exec("git", "reset", "-q", "--hard", remoteSHA)
-		env.mirror()
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, testMainBranch, nil, true); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
-		assertMissingFile(t, tempClone, ".git")
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, "HEAD", nil, true); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteSHA)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
-		assertMissingFile(t, tempClone, ".git")
-	})
-
-	t.Run("delete other branch", func(t *testing.T) {
-		env.exec("git", "branch", "-D", otherBranch)
-		env.mirror()
-
-		if _, err := env.repo.Clone(txtCtx, tempClone, otherBranch, nil, true); err == nil {
-			t.Errorf("unexpected success for non-existent branch:%s", otherBranch)
-		}
-	})
-}
-
-func Test_clone_tag_sha(t *testing.T) {
-	env := setupEnv(t)
-	defer env.cleanup()
-	tempClone := mustTmpDir(t)
-	defer os.RemoveAll(tempClone)
-
-	otherBranch := "other-branch"
-	tag := "e2e-tag"
-	var sha, remoteDir2SHA, remoteOtherSHA, remoteSHA2 string
-
-	t.Run("init upstream and verify 1st commit after mirror", func(t *testing.T) {
-		env.initUpstream("file", env.name+"-main-1")
-		sha = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-1")
-		env.exec("git", "tag", "-af", tag, "-m", env.name+"-main-1")
-
-		env.createAndMirror("", "")
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != sha {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, sha, nil, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != sha {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
-	})
-
-	t.Run("forward HEAD and create other-branch", func(t *testing.T) {
-		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
-		env.exec("git", "checkout", "-q", "-b", otherBranch)
-		remoteDir2SHA = env.commit(filepath.Join("dir2", "file"), env.name+"-dir2-other-2")
-		remoteOtherSHA = env.commit("file", env.name+"-other-2")
-		env.exec("git", "checkout", "-q", testMainBranch)
-		remoteSHA2 = env.commit("file", env.name+"-main-2")
-		env.exec("git", "tag", "-af", tag, "-m", env.name+"-main-2")
-
-		env.mirror()
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, remoteOtherSHA, nil, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteOtherSHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteOtherSHA)
-		}
-		assertFile(t, filepath.Join(tempClone, "file"), env.name+"-other-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-2")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), env.name+"-dir2-other-2")
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, remoteDir2SHA, []string{"dir2"}, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteDir2SHA {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir2SHA)
-		}
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir2", "file")), env.name+"-dir2-other-2")
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, tag, []string{"dir1"}, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != remoteSHA2 {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, remoteDir2SHA)
-		}
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-2")
-	})
-
-	t.Run("move HEAD backward to init", func(t *testing.T) {
-		env.exec("git", "reset", "-q", "--hard", sha)
-		env.exec("git", "tag", "-af", tag, "-m", env.name+"-main-3")
-		env.mirror()
-
-		if cloneSHA, err := env.repo.Clone(txtCtx, tempClone, tag, nil, false); err != nil {
-			t.Fatalf("unexpected error %s", err)
-		} else if cloneSHA != sha {
-			t.Errorf("clone sha mismatch got:%s want:%s", cloneSHA, sha)
-		}
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
-		assertFile(t, filepath.Join(tempClone, filepath.Join("dir1", "file")), env.name+"-dir1-main-1")
 	})
 }
 
@@ -1121,27 +990,41 @@ func (e *testEnv) assertMissingLinkFile(link, file string) {
 	assertMissingFile(e.t, filepath.Join(e.root, link), file)
 }
 
-func (e *testEnv) assertCommitLog(ref, path, wantSHA, wantSub string, wantChangedFiles []string) {
-	e.t.Helper()
-	assertCommitLog(e.t, e.repo, ref, path, wantSHA, wantSub, wantChangedFiles)
+type commitLog struct {
+	ref     string
+	path    string
+	sha     string
+	sub     string
+	changed []string
 }
 
-func (e *testEnv) branchCommits(branch string) []repository.CommitInfo {
+func (e *testEnv) assertLogs(logs []commitLog) {
+	e.t.Helper()
+	for _, l := range logs {
+		assertCommitLog(e.t, e.repo, l.ref, l.path, l.sha, l.sub, l.changed)
+	}
+}
+
+func (e *testEnv) assertBranchDiff(branch string, expected []repository.CommitInfo) {
 	e.t.Helper()
 	commits, err := e.repo.BranchCommits(txtCtx, branch)
 	if err != nil {
 		e.t.Fatalf("unexpected error fetching branch commits: %v", err)
 	}
-	return commits
+	if diff := cmp.Diff(expected, commits); diff != "" {
+		e.t.Errorf("BranchCommits mismatch (-want +got):\n%s", diff)
+	}
 }
 
-func (e *testEnv) mergeCommits(mergeCommitHash string) []repository.CommitInfo {
+func (e *testEnv) assertMergeDiff(mergeHash string, expected []repository.CommitInfo) {
 	e.t.Helper()
-	commits, err := e.repo.MergeCommits(txtCtx, mergeCommitHash)
+	commits, err := e.repo.MergeCommits(txtCtx, mergeHash)
 	if err != nil {
 		e.t.Fatalf("unexpected error fetching merge commits: %v", err)
 	}
-	return commits
+	if diff := cmp.Diff(expected, commits); diff != "" {
+		e.t.Errorf("MergeCommits mismatch (-want +got):\n%s", diff)
+	}
 }
 
 func mustInitRepo(t *testing.T, repo, file, content string) string {
@@ -1197,6 +1080,16 @@ func assertLinkedFile(t *testing.T, root, link, file, expected string) {
 		t.Fatalf("unable to read link error: %v", err)
 	}
 	assertFile(t, filepath.Join(linkAbs, file), expected)
+}
+
+func assertDirFiles(t *testing.T, root string, expected map[string]string, missing []string) {
+	t.Helper()
+	for file, content := range expected {
+		assertFile(t, filepath.Join(root, file), content)
+	}
+	for _, file := range missing {
+		assertMissingFile(t, root, file)
+	}
 }
 
 func assertFile(t *testing.T, absFile string, expected string) {
