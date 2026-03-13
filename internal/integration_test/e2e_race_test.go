@@ -299,3 +299,100 @@ func Test_mirror_detect_race_repo_pool(t *testing.T) {
 		wg.Wait()
 	})
 }
+
+func Test_mirror_detect_race_edge_cases(t *testing.T) {
+	env := setupEnv(t)
+	defer env.cleanup()
+
+	upstream1 := filepath.Join(env.tmpDir, testUpstreamRepo)
+	remote1 := "file://" + upstream1
+	env.initUpstream("file", "content")
+
+	t.Run("concurrent AddRepository race condition (TOCTOU)", func(t *testing.T) {
+		rpc := repopool.Config{
+			Defaults: repopool.DefaultConfig{Root: env.root},
+		}
+		rp, err := repopool.New(context.Background(), rpc, testLog, "", testENVs)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		var wg sync.WaitGroup
+		startGun := make(chan struct{}) // Used to force all goroutines to fire at the exact same time
+
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-startGun // Block until the channel is closed
+				_ = rp.AddRepository(repository.Config{Remote: remote1})
+			}()
+		}
+
+		close(startGun) // Fire the starting gun! All 20 goroutines resume instantly.
+		wg.Wait()
+
+		// If the race condition exists, this array will have > 1 identical repos
+		if len(rp.RepositoriesRemote()) > 1 {
+			t.Errorf("Race condition detected: RepoPool allowed duplicate repositories to be added! Count: %d", len(rp.RepositoriesRemote()))
+		}
+	})
+
+	t.Run("concurrent StopLoop deadlock", func(t *testing.T) {
+		env.createAndMirror("link", testMainBranch)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		go env.repo.StartLoop(ctx)
+		time.Sleep(1 * time.Second) // Let the loop boot up
+
+		var wg sync.WaitGroup
+		// If StopLoop isn't idempotent, multiple callers will deadlock
+		// waiting to send to the unbuffered `r.stop` channel.
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				env.repo.StopLoop()
+			}()
+		}
+
+		// Use a timeout to detect the deadlock
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Success: all StopLoops returned safely
+		case <-time.After(3 * time.Second):
+			t.Errorf("Deadlock detected: Concurrent calls to StopLoop blocked forever.")
+		}
+	})
+
+	t.Run("concurrent QueueMirrorRun spamming", func(t *testing.T) {
+		env.createAndMirror("link", testMainBranch)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		go env.repo.StartLoop(ctx)
+
+		var wg sync.WaitGroup
+		// Blast the queue while the loop is running to ensure the
+		// non-blocking channel send holds up safely
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				env.repo.QueueMirrorRun()
+			}()
+		}
+		wg.Wait()
+
+		env.repo.StopLoop()
+	})
+}

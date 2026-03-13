@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/utilitywarehouse/git-mirror/giturl"
@@ -65,6 +66,7 @@ type Repository struct {
 	workTreeLinks map[string]*WorkTreeLink // list of worktrees which will be maintained
 	stop, stopped chan bool                // chans to stop mirror loops
 	queueMirror   chan struct{}            // chan to queue mirror run
+	stopOnce      sync.Once
 	log           *slog.Logger
 
 	githubAppToken          string
@@ -487,10 +489,12 @@ func (r *Repository) QueueMirrorRun() {
 
 // StopLoop stops sync loop gracefully
 func (r *Repository) StopLoop() {
-	r.stop <- true
-	<-r.stopped
-	deleteMetrics(r.gitURL.Repo)
-	r.log.Info("repository mirror loop stopped")
+	r.stopOnce.Do(func() {
+		r.stop <- true
+		<-r.stopped
+		deleteMetrics(r.gitURL.Repo)
+		r.log.Info("repository mirror loop stopped")
+	})
 }
 
 // Mirror will run mirror loop of the repository

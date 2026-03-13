@@ -96,13 +96,22 @@ func New(ctx context.Context, conf Config, log *slog.Logger, gitExec string, com
 // AddRepository will add given repository to repoPool.
 // Remote repo will not be mirrored until either Mirror() or StartLoop() is called
 func (rp *RepoPool) AddRepository(repoConf repository.Config) error {
-	remoteURL := giturl.NormaliseURL(repoConf.Remote)
-	if repo, _ := rp.Repository(remoteURL); repo != nil {
-		return ErrExist
+	newRemote := giturl.NormaliseURL(repoConf.Remote)
+	gitNewRemote, err := giturl.Parse(newRemote)
+	if err != nil {
+		return err
 	}
 
 	rp.lock.Lock()
 	defer rp.lock.Unlock()
+
+	// Check if it exists while holding the exclusive Lock
+	for _, repo := range rp.repos {
+		repoURL, _ := giturl.Parse(repo.Remote())
+		if repoURL.Equals(gitNewRemote) {
+			return ErrExist
+		}
+	}
 
 	repo, err := repository.New(repoConf, rp.cmd, rp.commonENVs, rp.log)
 	if err != nil {
