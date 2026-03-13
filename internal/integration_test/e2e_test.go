@@ -115,8 +115,8 @@ func Test_Init_Scenarios(t *testing.T) {
 	})
 }
 
-// Test_Mirror_Lifecycle_Combined tests the full lifecycle (forward, backward, delete)
-// across main, HEAD, branches, and tags simultaneously.
+// Test_Mirror_Lifecycle_Combined tests the full lifecycle (forward, backward,
+// force-pushes, and deletions) across main, HEAD, branches, and tags simultaneously.
 func Test_Mirror_Lifecycle_Combined(t *testing.T) {
 	env := setupEnv(t)
 	defer env.cleanup()
@@ -124,10 +124,13 @@ func Test_Mirror_Lifecycle_Combined(t *testing.T) {
 	lMain, lHead, lOther, lTag := "link-main", "link-head", "link-other", "link-tag"
 	rMain, rHead, rOther, rTag := testMainBranch, "HEAD", "other-branch", "e2e-tag"
 
+	var initialMainSHA, initialOtherSHA string
+
 	t.Run("init upstream and add references", func(t *testing.T) {
-		env.initUpstream("file", env.name+"-main-1")
+		env.t = t
+		initialMainSHA = env.initUpstream("file", env.name+"-main-1")
 		env.checkout(rOther, true)
-		env.commit("file", env.name+"-other-1")
+		initialOtherSHA = env.commit("file", env.name+"-other-1")
 		env.checkout(rMain, false)
 		env.exec("git", "tag", "-af", rTag, "-m", env.name+"-main-1")
 
@@ -145,8 +148,10 @@ func Test_Mirror_Lifecycle_Combined(t *testing.T) {
 		env.assertFilesLinked(lTag, map[string]string{"file": env.name + "-main-1"}, nil)
 	})
 
-	t.Run("forward all references", func(t *testing.T) {
+	t.Run("forward all references and add files", func(t *testing.T) {
+		env.t = t
 		env.commit("file", env.name+"-main-2")
+		env.commit("delete_me.txt", "to be deleted")
 		env.exec("git", "tag", "-af", rTag, "-m", env.name+"-main-2")
 		env.checkout(rOther, false)
 		env.commit("file", env.name+"-other-2")
@@ -154,28 +159,58 @@ func Test_Mirror_Lifecycle_Combined(t *testing.T) {
 
 		env.mirror()
 
-		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-2"}, nil)
-		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-2"}, nil)
-		env.assertFilesLinked(lOther, map[string]string{"file": env.name + "-other-2"}, nil)
+		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-2", "delete_me.txt": "to be deleted"}, nil)
+		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-2", "delete_me.txt": "to be deleted"}, nil)
+		env.assertFilesLinked(lOther, map[string]string{"file": env.name + "-other-2"}, []string{"delete_me.txt"})
 		env.assertFilesLinked(lTag, map[string]string{"file": env.name + "-main-2"}, nil)
 	})
 
+	t.Run("upstream file deletion", func(t *testing.T) {
+		env.t = t
+		env.exec("git", "rm", "delete_me.txt")
+		env.exec("git", "commit", "-m", "delete file")
+		env.mirror()
+
+		// Verify delete_me.txt is removed from the active worktrees
+		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-2"}, []string{"delete_me.txt"})
+		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-2"}, []string{"delete_me.txt"})
+	})
+
 	t.Run("move all references backward", func(t *testing.T) {
-		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.t = t
+		env.exec("git", "reset", "-q", "--hard", initialMainSHA)
 		env.exec("git", "tag", "-af", rTag, "-m", "moving back")
 		env.checkout(rOther, false)
-		env.exec("git", "reset", "-q", "--hard", "HEAD^")
+		env.exec("git", "reset", "-q", "--hard", initialOtherSHA)
 		env.checkout(rMain, false)
 
 		env.mirror()
 
-		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-1"}, nil)
-		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-1"}, nil)
+		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-main-1"}, []string{"delete_me.txt"})
+		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-main-1"}, []string{"delete_me.txt"})
 		env.assertFilesLinked(lOther, map[string]string{"file": env.name + "-other-1"}, nil)
 		env.assertFilesLinked(lTag, map[string]string{"file": env.name + "-main-1"}, nil)
 	})
 
+	t.Run("divergent history (force push)", func(t *testing.T) {
+		env.t = t
+		// Because we moved backward in the previous step, these new commits create a divergent history.
+		env.commit("file", env.name+"-divergent-main")
+		env.exec("git", "tag", "-af", rTag, "-m", "divergent tag")
+		env.checkout(rOther, false)
+		env.commit("file", env.name+"-divergent-other")
+		env.checkout(rMain, false)
+
+		env.mirror() // Mirror should fetch and forcefully update without conflicts
+
+		env.assertFilesLinked(lMain, map[string]string{"file": env.name + "-divergent-main"}, nil)
+		env.assertFilesLinked(lHead, map[string]string{"file": env.name + "-divergent-main"}, nil)
+		env.assertFilesLinked(lOther, map[string]string{"file": env.name + "-divergent-other"}, nil)
+		env.assertFilesLinked(lTag, map[string]string{"file": env.name + "-divergent-main"}, nil)
+	})
+
 	t.Run("remove worktrees", func(t *testing.T) {
+		env.t = t
 		env.repo.RemoveWorktreeLink(lMain)
 		env.repo.RemoveWorktreeLink(lHead)
 		env.repo.RemoveWorktreeLink(lOther)
@@ -201,13 +236,18 @@ func Test_Clone_Operations(t *testing.T) {
 	otherBranch := "other-branch"
 	tag := "e2e-tag"
 
-	var dir1SHA, dir2SHA3, fileOtherSHA3, fileOtherSHA4, mergeCommit3 string
+	var fileSHA1, dir2SHA3, fileOtherSHA3, fileOtherSHA4, mergeCommit3 string
 
 	t.Run("build complex history and mirror", func(t *testing.T) {
+		env.t = t
 		// 1. Initial State
-		env.initUpstream("file", env.name+"-main-1")
-		dir1SHA = env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
+		fileSHA1 = env.initUpstream("file", env.name+"-main-1")
+		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-2")
 		env.commit("file", env.name+"-main-2")
+
+		// Add files of different types explicitly to test glob / wildcard cloning later
+		env.commit(filepath.Join("docs", "api.yaml"), "yaml-docs")
+		env.commit("root.txt", "text")
 
 		// 2. Other Branch updates and tagging
 		env.commit(filepath.Join("dir1", "file"), env.name+"-dir1-main-3")
@@ -249,6 +289,7 @@ func Test_Clone_Operations(t *testing.T) {
 	})
 
 	t.Run("clone checks", func(t *testing.T) {
+		env.t = t
 		cases := []struct {
 			name        string
 			ref         string
@@ -258,15 +299,17 @@ func Test_Clone_Operations(t *testing.T) {
 			wantFiles   map[string]string
 			wantMissing []string
 		}{
-			{"main", testMainBranch, nil, false, mergeCommit3, map[string]string{"file2": env.name + "-main-5", filepath.Join("dir1", "file"): env.name + "-dir1-main-5"}, nil},
+			{"branch", testMainBranch, nil, false, mergeCommit3, map[string]string{"file2": env.name + "-main-5", filepath.Join("dir1", "file"): env.name + "-dir1-main-5"}, nil},
 			{"HEAD", "HEAD", nil, false, mergeCommit3, map[string]string{"file2": env.name + "-main-5"}, nil},
-			{"HEAD pathspec", "HEAD", []string{"dir1"}, false, mergeCommit3, map[string]string{filepath.Join("dir1", "file"): env.name + "-dir1-main-5"}, []string{"file", "dir2"}},
 			{"other branch", otherBranch, nil, false, fileOtherSHA4, map[string]string{"file": env.name + "-other-4", filepath.Join("dir2", "file"): env.name + "-dir2-other-4"}, nil},
 			{"other branch pathspec", otherBranch, []string{"dir2"}, false, fileOtherSHA4, map[string]string{filepath.Join("dir2", "file"): env.name + "-dir2-other-4"}, []string{"file", "dir1"}},
+			{"HEAD pathspec", "HEAD", []string{"dir1"}, false, mergeCommit3, map[string]string{filepath.Join("dir1", "file"): env.name + "-dir1-main-5"}, []string{"file", "dir2"}},
 			{"tag", tag, nil, false, fileOtherSHA3, map[string]string{"file": env.name + "-other-3", filepath.Join("dir2", "file"): env.name + "-dir2-other-3"}, nil},
 			{"tag pathspec", tag, []string{"dir2"}, false, fileOtherSHA3, map[string]string{filepath.Join("dir2", "file"): env.name + "-dir2-other-3"}, []string{"file", "dir1"}},
 			{"sha pathspec", dir2SHA3, []string{"dir2"}, false, dir2SHA3, map[string]string{filepath.Join("dir2", "file"): env.name + "-dir2-other-3"}, []string{"file", "dir1"}},
 			{"rmGitDir", testMainBranch, nil, true, mergeCommit3, map[string]string{"file2": env.name + "-main-5"}, []string{".git"}},
+			{"glob yaml", testMainBranch, []string{"**/*.yaml"}, false, mergeCommit3, map[string]string{filepath.Join("docs", "api.yaml"): "yaml-docs"}, []string{"file2", "root.txt", filepath.Join("dir1", "file")}},
+			{"glob txt", testMainBranch, []string{"*.txt"}, false, mergeCommit3, map[string]string{"root.txt": "text"}, []string{"file2", filepath.Join("docs", "api.yaml")}},
 		}
 
 		for _, tc := range cases {
@@ -286,8 +329,9 @@ func Test_Clone_Operations(t *testing.T) {
 	})
 
 	t.Run("rollback and clone deleted branch", func(t *testing.T) {
+		env.t = t
 		env.exec("git", "branch", "-D", otherBranch)
-		env.exec("git", "reset", "-q", "--hard", dir1SHA)
+		env.exec("git", "reset", "-q", "--hard", fileSHA1)
 		env.mirror()
 
 		if _, err := env.repo.Clone(txtCtx, tempClone, otherBranch, nil, true); err == nil {
