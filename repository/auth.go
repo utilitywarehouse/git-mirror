@@ -42,7 +42,7 @@ func (r *Repository) authEnv(ctx context.Context) []string {
 
 	// if only password (token) is set use that
 	case r.auth.Password != "":
-		username = "-" // username is required
+		username = "x-oauth-basic" // username is required
 		password = r.auth.Password
 
 	// if github app config is set use that token
@@ -53,7 +53,7 @@ func (r *Repository) authEnv(ctx context.Context) []string {
 			r.log.Error("unable to get github app token", "err", err)
 			return nil
 		}
-		username = "-" // username is required
+		username = "x-oauth-basic" // username is required
 		password = token
 
 	default:
@@ -118,13 +118,18 @@ func (r *Repository) getGithubAppToken(ctx context.Context, repo string) (string
 		r.auth.GithubAppID, r.auth.GithubAppInstallationID, r.auth.GithubAppPrivateKeyPath,
 		permissions)
 	if err != nil {
+		// If API fails,use old token if its still valid
+		if r.githubAppToken != "" && r.githubAppTokenExpiresAt.After(time.Now().UTC()) {
+			r.log.Warn("github token refresh failed, falling back to existing token", "err", err)
+			return r.githubAppToken, nil
+		}
 		return "", err
 	}
 
 	r.githubAppToken = token.Token
 	r.githubAppTokenExpiresAt = token.ExpiresAt
 
-	r.log.Debug("new github app access token created")
+	r.log.Info("new github app access token created")
 
 	return r.githubAppToken, nil
 }
