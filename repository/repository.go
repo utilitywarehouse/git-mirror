@@ -320,13 +320,13 @@ func ParseCommitWithChangedFilesList(output string) []CommitInfo {
 	commitCount := 0
 	Commits := []CommitInfo{}
 
-	for _, line := range strings.Split(output, "\n") {
+	for line := range strings.SplitSeq(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "COMMIT:") {
-			hash := strings.TrimPrefix(line, "COMMIT:")
+		if after, ok := strings.CutPrefix(line, "COMMIT:"); ok {
+			hash := after
 			Commits = append(Commits, CommitInfo{Hash: hash})
 			commitCount += 1
 			continue

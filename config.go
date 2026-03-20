@@ -205,7 +205,7 @@ func parseConfigFile(path string) (*repopool.Config, error) {
 }
 
 func validateConfigYaml(yamlData []byte) error {
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := yaml.Unmarshal(yamlData, &raw); err != nil {
 		return fmt.Errorf("unable to decode config err:%w", err)
 	}
@@ -217,7 +217,7 @@ func validateConfigYaml(yamlData []byte) error {
 
 	// check ".defaults" if it's not empty
 	if raw["defaults"] != nil {
-		defaultsMap, ok := raw["defaults"].(map[string]interface{})
+		defaultsMap, ok := raw["defaults"].(map[string]any)
 		if !ok {
 			return fmt.Errorf(".defaults config is not valid")
 		}
@@ -227,7 +227,7 @@ func validateConfigYaml(yamlData []byte) error {
 		}
 
 		// check ".defaults.auth"
-		if authMap, ok := defaultsMap["auth"].(map[string]interface{}); ok {
+		if authMap, ok := defaultsMap["auth"].(map[string]any); ok {
 			if key := findUnexpectedKey(authMap, allowedAuthKeys); key != "" {
 				return fmt.Errorf("unexpected key: .defaults.auth.%v", key)
 			}
@@ -240,14 +240,14 @@ func validateConfigYaml(yamlData []byte) error {
 	}
 
 	// check ".repositories"
-	reposInterface, ok := raw["repositories"].([]interface{})
+	reposInterface, ok := raw["repositories"].([]any)
 	if !ok {
 		return fmt.Errorf(".repositories config must be an array")
 	}
 
 	// check each repository in ".repositories"
 	for _, repoInterface := range reposInterface {
-		repoMap, ok := repoInterface.(map[string]interface{})
+		repoMap, ok := repoInterface.(map[string]any)
 		if !ok {
 			return fmt.Errorf(".repositories config is not valid")
 		}
@@ -262,13 +262,13 @@ func validateConfigYaml(yamlData []byte) error {
 		}
 
 		// check "worktrees" in each repository
-		worktreesInterface, ok := repoMap["worktrees"].([]interface{})
+		worktreesInterface, ok := repoMap["worktrees"].([]any)
 		if !ok {
 			return fmt.Errorf("worktrees config must be an array in .repositories[%v]", repoMap["remote"])
 		}
 
 		for i, worktreeInterface := range worktreesInterface {
-			worktreeMap, ok := worktreeInterface.(map[string]interface{})
+			worktreeMap, ok := worktreeInterface.(map[string]any)
 			if !ok {
 				return fmt.Errorf("worktrees config is not valid in .repositories[%v]", repoMap["remote"])
 			}
@@ -279,7 +279,7 @@ func validateConfigYaml(yamlData []byte) error {
 
 			// Check "pathspecs" in each worktree
 			if pathspecsInterface, exists := worktreeMap["pathspecs"]; exists {
-				if _, ok := pathspecsInterface.([]interface{}); !ok {
+				if _, ok := pathspecsInterface.([]any); !ok {
 					return fmt.Errorf("pathspecs config must be an array in .repositories[%v].worktrees[%v]", repoMap["remote"], i)
 				}
 			}
@@ -290,7 +290,7 @@ func validateConfigYaml(yamlData []byte) error {
 }
 
 // getAllowedKeys retrieves a list of allowed keys from the specified struct
-func getAllowedKeys(config interface{}) []string {
+func getAllowedKeys(config any) []string {
 	var allowedKeys []string
 	val := reflect.ValueOf(config)
 	typ := reflect.TypeOf(config)
@@ -305,7 +305,7 @@ func getAllowedKeys(config interface{}) []string {
 	return allowedKeys
 }
 
-func findUnexpectedKey(raw map[string]interface{}, allowedKeys []string) string {
+func findUnexpectedKey(raw map[string]any, allowedKeys []string) string {
 	for key := range raw {
 		if !slices.Contains(allowedKeys, key) {
 			return key

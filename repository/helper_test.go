@@ -345,7 +345,7 @@ func TestJitter(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// since we are using rand test values 10 times
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				got := jitter(tt.args.duration, tt.args.maxFactor)
 				if got > tt.maxWant {
 					t.Errorf("jitter() = %v, max-want %v", got, tt.maxWant)
