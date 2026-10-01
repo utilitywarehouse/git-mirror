@@ -3,7 +3,7 @@ module github.com/utilitywarehouse/git-mirror
 go 1.26.0
 
 require (
-	github.com/go-jose/go-jose/v4 v4.1.4
+	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/google/go-cmp v0.7.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/sasha-s/go-deadlock v0.3.9
